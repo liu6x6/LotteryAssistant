@@ -5,15 +5,29 @@ struct TicketEntryView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \LotteryDraw.drawDate, order: .reverse) private var draws: [LotteryDraw]
+    @Query private var existingTickets: [LotteryTicket]
 
-    @State private var kind: LotteryKind = .doubleColorBall
-    @State private var issueNumber = ""
-    @State private var frontNumbers = Set<Int>()
-    @State private var backNumbers = Set<Int>()
-    @State private var multiplier = 1
-    @State private var isAdditional = false
+    private let ticket: LotteryTicket?
+
+    @State private var kind: LotteryKind
+    @State private var issueNumber: String
+    @State private var frontNumbers: Set<Int>
+    @State private var backNumbers: Set<Int>
+    @State private var multiplier: Int
+    @State private var isAdditional: Bool
     @State private var validationMessage: String?
     @State private var isPresentingScanner = false
+    @State private var additionalScannedEntries: [TicketNumberDraft] = []
+
+    init(ticket: LotteryTicket? = nil) {
+        self.ticket = ticket
+        _kind = State(initialValue: ticket?.kind ?? .doubleColorBall)
+        _issueNumber = State(initialValue: ticket?.issueNumber ?? "")
+        _frontNumbers = State(initialValue: Set(ticket?.frontNumbers ?? []))
+        _backNumbers = State(initialValue: Set(ticket?.backNumbers ?? []))
+        _multiplier = State(initialValue: ticket?.multiplier ?? 1)
+        _isAdditional = State(initialValue: ticket?.isAdditional ?? false)
+    }
 
     private var latestIssue: String {
         draws.first(where: { $0.kind == kind })?.issueNumber ?? ""
@@ -52,6 +66,31 @@ struct TicketEntryView: View {
                 Text("识别出的内容必须由您确认后才会保存。")
             }
 
+            if !additionalScannedEntries.isEmpty {
+                Section {
+                    ForEach(additionalScannedEntries) { entry in
+                        HStack {
+                            NumberRow(
+                                frontNumbers: entry.frontNumbers,
+                                backNumbers: entry.backNumbers
+                            )
+                            Spacer()
+                            Button(role: .destructive) {
+                                additionalScannedEntries.removeAll { $0.id == entry.id }
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("删除该注号码")
+                        }
+                    }
+                } header: {
+                    Text("OCR 识别的其他号码")
+                } footer: {
+                    Text("保存时，每一注号码都会创建为一张独立彩票，并使用相同的期号、倍数和追加设置。")
+                }
+            }
+
             Section {
                 NumberPickerGrid(
                     title: kind == .doubleColorBall ? "选择 6 个红球" : "选择 5 个前区号码",
@@ -79,7 +118,7 @@ struct TicketEntryView: View {
                 }
             }
         }
-        .navigationTitle("录入彩票")
+        .navigationTitle(ticket == nil ? "录入彩票" : "修改彩票")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
@@ -97,10 +136,15 @@ struct TicketEntryView: View {
         }
         .sheet(isPresented: $isPresentingScanner) {
             TicketScanView(kind: kind) { draft in
-                frontNumbers = Set(draft.frontNumbers)
-                backNumbers = Set(draft.backNumbers)
+                guard let firstEntry = draft.entries.first else { return }
+                frontNumbers = Set(firstEntry.frontNumbers)
+                backNumbers = Set(firstEntry.backNumbers)
+                additionalScannedEntries = ticket == nil ? Array(draft.entries.dropFirst()) : []
                 if !draft.issueNumber.isEmpty {
                     issueNumber = draft.issueNumber
+                }
+                if ticket != nil, draft.entries.count > 1 {
+                    validationMessage = "修改彩票时仅应用识别结果中的第一注号码。"
                 }
             }
         }
@@ -109,11 +153,13 @@ struct TicketEntryView: View {
     private func clearNumbers() {
         frontNumbers.removeAll()
         backNumbers.removeAll()
+        additionalScannedEntries.removeAll()
         isAdditional = false
     }
 
     private func saveTicket() {
-        guard !issueNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        let trimmedIssue = issueNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedIssue.isEmpty else {
             validationMessage = "请输入开奖期号。"
             return
         }
@@ -126,26 +172,131 @@ struct TicketEntryView: View {
             return
         }
 
-        let ticket = LotteryTicket(
-            kind: kind,
-            issueNumber: issueNumber,
+        let normalizedIssue = LotteryIssue.normalize(trimmedIssue, for: kind)
+        let primaryEntry = TicketNumberDraft(
             frontNumbers: frontNumbers.sorted(),
-            backNumbers: backNumbers.sorted(),
-            multiplier: multiplier,
-            isAdditional: isAdditional
+            backNumbers: backNumbers.sorted()
         )
+        let usesAdditional = kind == .superLotto && isAdditional
 
-        if let draw = draws.first(where: { $0.kind == kind && $0.issueNumber == issueNumber }) {
-            PrizeChecker.apply(PrizeChecker.evaluate(ticket: ticket, draw: draw), to: ticket, using: draw)
+        if let ticket {
+            let editedSignature = TicketSignature(
+                kind: kind,
+                issueNumber: normalizedIssue,
+                entry: primaryEntry,
+                multiplier: multiplier,
+                isAdditional: usesAdditional
+            )
+            guard !existingTickets.contains(where: {
+                $0.id != ticket.id && TicketSignature(ticket: $0) == editedSignature
+            }) else {
+                validationMessage = "相同彩票已经存在，请修改号码或投注信息。"
+                return
+            }
+
+            ticket.lotteryRawValue = kind.rawValue
+            ticket.issueNumber = normalizedIssue
+            ticket.frontNumbersRaw = LotteryDraw.encode(primaryEntry.frontNumbers)
+            ticket.backNumbersRaw = LotteryDraw.encode(primaryEntry.backNumbers)
+            ticket.multiplier = multiplier
+            ticket.isAdditional = usesAdditional
+            ticket.statusRawValue = TicketStatus.pendingDraw.rawValue
+            ticket.checkedAt = nil
+            ticket.matchedFrontCount = 0
+            ticket.matchedBackCount = 0
+            ticket.prizeLevel = nil
+            ticket.estimatedPrize = 0
+            applyResultIfAvailable(to: ticket, issueNumber: normalizedIssue)
+        } else {
+            let entries = [primaryEntry] + additionalScannedEntries
+            var knownSignatures = Set(existingTickets.map(TicketSignature.init(ticket:)))
+            var uniqueEntries: [TicketNumberDraft] = []
+
+            for entry in entries {
+                let signature = TicketSignature(
+                    kind: kind,
+                    issueNumber: normalizedIssue,
+                    entry: entry,
+                    multiplier: multiplier,
+                    isAdditional: usesAdditional
+                )
+                if knownSignatures.insert(signature).inserted {
+                    uniqueEntries.append(entry)
+                }
+            }
+
+            guard !uniqueEntries.isEmpty else {
+                validationMessage = "相同彩票已经存在，本次没有重复添加。"
+                return
+            }
+
+            for entry in uniqueEntries {
+                let newTicket = LotteryTicket(
+                    kind: kind,
+                    issueNumber: normalizedIssue,
+                    frontNumbers: entry.frontNumbers,
+                    backNumbers: entry.backNumbers,
+                    multiplier: multiplier,
+                    isAdditional: usesAdditional
+                )
+                applyResultIfAvailable(to: newTicket, issueNumber: normalizedIssue)
+                modelContext.insert(newTicket)
+            }
         }
 
-        modelContext.insert(ticket)
         do {
             try modelContext.save()
             dismiss()
         } catch {
+            modelContext.rollback()
             validationMessage = "保存失败：\(error.localizedDescription)"
         }
+    }
+
+    private func applyResultIfAvailable(to ticket: LotteryTicket, issueNumber: String) {
+        guard let draw = draws.first(where: {
+            $0.kind == kind && LotteryIssue.normalize($0.issueNumber, for: kind) == issueNumber
+        }) else {
+            return
+        }
+        PrizeChecker.apply(PrizeChecker.evaluate(ticket: ticket, draw: draw), to: ticket, using: draw)
+    }
+}
+
+private struct TicketSignature: Hashable {
+    let lotteryRawValue: String
+    let issueNumber: String
+    let frontNumbersRaw: String
+    let backNumbersRaw: String
+    let multiplier: Int
+    let isAdditional: Bool
+
+    init(
+        kind: LotteryKind,
+        issueNumber: String,
+        entry: TicketNumberDraft,
+        multiplier: Int,
+        isAdditional: Bool
+    ) {
+        self.lotteryRawValue = kind.rawValue
+        self.issueNumber = LotteryIssue.normalize(issueNumber, for: kind)
+        self.frontNumbersRaw = LotteryDraw.encode(entry.frontNumbers)
+        self.backNumbersRaw = LotteryDraw.encode(entry.backNumbers)
+        self.multiplier = multiplier
+        self.isAdditional = isAdditional
+    }
+
+    init(ticket: LotteryTicket) {
+        self.init(
+            kind: ticket.kind,
+            issueNumber: ticket.issueNumber,
+            entry: TicketNumberDraft(
+                frontNumbers: ticket.frontNumbers,
+                backNumbers: ticket.backNumbers
+            ),
+            multiplier: ticket.multiplier,
+            isAdditional: ticket.isAdditional
+        )
     }
 }
 

@@ -13,18 +13,31 @@ struct DrawListView: View {
     }
 
     var body: some View {
-        Group {
-            if filteredDraws.isEmpty {
-                EmptyState(symbol: "calendar.badge.exclamationmark", title: "暂无开奖记录", message: "该彩种的开奖数据尚未同步。")
-            } else {
-                List(filteredDraws) { draw in
-                    NavigationLink {
-                        DrawDetailView(draw: draw)
-                    } label: {
-                        DrawListRow(draw: draw)
-                    }
+        VStack(spacing: 0) {
+            Picker("彩种", selection: $selectedKind) {
+                ForEach(LotteryKind.allCases) { kind in
+                    Text(kind.displayName).tag(kind)
                 }
-                .listStyle(.plain)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, AppTheme.Spacing.md)
+            .padding(.vertical, AppTheme.Spacing.xs)
+            .background(.bar)
+
+            Group {
+                if filteredDraws.isEmpty {
+                    EmptyState(symbol: "calendar.badge.exclamationmark", title: "暂无开奖记录", message: "该彩种的开奖数据尚未同步。")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List(filteredDraws) { draw in
+                        NavigationLink {
+                            DrawDetailView(draw: draw)
+                        } label: {
+                            DrawListRow(draw: draw)
+                        }
+                    }
+                    .listStyle(.plain)
+                }
             }
         }
         .navigationTitle("开奖中心")
@@ -50,17 +63,6 @@ struct DrawListView: View {
             Button("知道了", role: .cancel) {}
         } message: {
             Text(syncMessage ?? "")
-        }
-        .safeAreaInset(edge: .top) {
-            Picker("彩种", selection: $selectedKind) {
-                ForEach(LotteryKind.allCases) { kind in
-                    Text(kind.displayName).tag(kind)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, AppTheme.Spacing.md)
-            .padding(.vertical, AppTheme.Spacing.xs)
-            .background(.bar)
         }
     }
 

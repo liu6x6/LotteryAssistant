@@ -5,9 +5,14 @@ import UIKit
 
 struct TicketScanDraft {
     let issueNumber: String
+    let entries: [TicketNumberDraft]
+    let confidence: Float
+}
+
+struct TicketNumberDraft: Identifiable {
+    let id = UUID()
     let frontNumbers: [Int]
     let backNumbers: [Int]
-    let confidence: Float
 }
 
 private struct RecognizedLine: Identifiable {
@@ -19,8 +24,7 @@ private struct RecognizedLine: Identifiable {
 private struct TicketScanAnalysis {
     let lines: [RecognizedLine]
     let issueNumber: String
-    let frontNumbers: [Int]
-    let backNumbers: [Int]
+    let entries: [TicketNumberDraft]
 
     var confidence: Float {
         guard !lines.isEmpty else { return 0 }
@@ -36,10 +40,10 @@ struct TicketScanView: View {
     @State private var selectedItem: PhotosPickerItem?
     @State private var cameraImage: UIImage?
     @State private var isPresentingCamera = false
+    @State private var isPresentingBarcodeScanner = false
     @State private var analysis: TicketScanAnalysis?
     @State private var issueNumber = ""
-    @State private var frontNumbersText = ""
-    @State private var backNumbersText = ""
+    @State private var editableEntries: [EditableScannedEntry] = []
     @State private var isRecognizing = false
     @State private var errorMessage: String?
     @State private var validationMessage: String?
@@ -89,6 +93,9 @@ struct TicketScanView: View {
                 CameraImagePicker(image: $cameraImage)
                     .ignoresSafeArea()
             }
+            .fullScreenCover(isPresented: $isPresentingBarcodeScanner) {
+                BarcodeScannerView()
+            }
         }
     }
 
@@ -107,19 +114,29 @@ struct TicketScanView: View {
     }
 
     private var captureActions: some View {
-        HStack(spacing: AppTheme.Spacing.sm) {
-            if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                Button {
-                    isPresentingCamera = true
-                } label: {
-                    Label("拍摄", systemImage: "camera.fill")
+        VStack(spacing: AppTheme.Spacing.sm) {
+            HStack(spacing: AppTheme.Spacing.sm) {
+                if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                    Button {
+                        isPresentingCamera = true
+                    } label: {
+                        Label("拍摄", systemImage: "camera.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                }
+
+                PhotosPicker(selection: $selectedItem, matching: .images) {
+                    Label("相册", systemImage: "photo.on.rectangle.angled")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(PrimaryButtonStyle())
             }
 
-            PhotosPicker(selection: $selectedItem, matching: .images) {
-                Label("相册", systemImage: "photo.on.rectangle.angled")
+            Button {
+                isPresentingBarcodeScanner = true
+            } label: {
+                Label("扫描票面条形码", systemImage: "barcode.viewfinder")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(PrimaryButtonStyle())
@@ -139,22 +156,42 @@ struct TicketScanView: View {
                 .keyboardType(.numberPad)
                 .textFieldStyle(.roundedBorder)
 
-            VStack(alignment: .leading, spacing: AppTheme.Spacing.xs) {
-                Text(kind == .doubleColorBall ? "红球（6 个，以空格或逗号分隔）" : "前区（5 个，以空格或逗号分隔）")
-                    .font(.caption)
-                    .foregroundStyle(AppTheme.Color.secondaryText)
-                TextField("例如：01 07 13 22 31 33", text: $frontNumbersText)
-                    .keyboardType(.numbersAndPunctuation)
-                    .textFieldStyle(.roundedBorder)
-            }
+            Text("共识别到 \(editableEntries.count) 注号码，保存后会自动拆分为 \(editableEntries.count) 张彩票。")
+                .font(.footnote)
+                .foregroundStyle(AppTheme.Color.secondaryText)
 
-            VStack(alignment: .leading, spacing: AppTheme.Spacing.xs) {
-                Text(kind == .doubleColorBall ? "蓝球（1 个）" : "后区（2 个）")
-                    .font(.caption)
-                    .foregroundStyle(AppTheme.Color.secondaryText)
-                TextField(kind == .doubleColorBall ? "例如：08" : "例如：03 11", text: $backNumbersText)
+            ForEach($editableEntries) { $entry in
+                VStack(alignment: .leading, spacing: AppTheme.Spacing.xs) {
+                    HStack {
+                        Text("第 \(entry.sequence) 注")
+                            .font(.subheadline.weight(.semibold))
+                        Spacer()
+                        if editableEntries.count > 1 {
+                            Button(role: .destructive) {
+                                editableEntries.removeAll { $0.id == entry.id }
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .accessibilityLabel("删除第 \(entry.sequence) 注")
+                        }
+                    }
+
+                    TextField(
+                        kind == .doubleColorBall ? "红球，例如：01 07 13 22 31 33" : "前区，例如：01 07 13 22 31",
+                        text: $entry.frontNumbersText
+                    )
                     .keyboardType(.numbersAndPunctuation)
                     .textFieldStyle(.roundedBorder)
+
+                    TextField(
+                        kind == .doubleColorBall ? "蓝球，例如：08" : "后区，例如：03 11",
+                        text: $entry.backNumbersText
+                    )
+                    .keyboardType(.numbersAndPunctuation)
+                    .textFieldStyle(.roundedBorder)
+                }
+                .padding(AppTheme.Spacing.sm)
+                .background(AppTheme.Color.surface, in: RoundedRectangle(cornerRadius: AppTheme.Radius.small))
             }
 
             if let validationMessage {
@@ -239,9 +276,15 @@ struct TicketScanView: View {
             let parsed = TicketOCRParser.analyze(lines: lines, kind: kind)
             analysis = parsed
             issueNumber = parsed.issueNumber
-            frontNumbersText = numberText(parsed.frontNumbers)
-            backNumbersText = numberText(parsed.backNumbers)
-            if parsed.frontNumbers.isEmpty || parsed.backNumbers.isEmpty {
+            editableEntries = parsed.entries.enumerated().map { index, entry in
+                EditableScannedEntry(
+                    sequence: index + 1,
+                    frontNumbersText: numberText(entry.frontNumbers),
+                    backNumbersText: numberText(entry.backNumbers)
+                )
+            }
+            if editableEntries.isEmpty {
+                editableEntries = [EditableScannedEntry(sequence: 1)]
                 errorMessage = "未能可靠识别完整号码，请手动补全后再应用。"
             }
         } catch {
@@ -279,26 +322,30 @@ struct TicketScanView: View {
     }
 
     private func applyDraft(confidence: Float) {
-        let front = TicketOCRParser.numbers(from: frontNumbersText)
-        let back = TicketOCRParser.numbers(from: backNumbersText)
         guard !issueNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             validationMessage = "请确认开奖期号。"
             return
         }
-        guard TicketOCRParser.isValid(front, in: kind.frontRange, expectedCount: kind.frontCount) else {
-            validationMessage = "请确认前区号码数量、范围和是否重复。"
-            return
-        }
-        guard TicketOCRParser.isValid(back, in: kind.backRange, expectedCount: kind.backCount) else {
-            validationMessage = "请确认后区号码数量、范围和是否重复。"
-            return
+
+        var entries: [TicketNumberDraft] = []
+        for entry in editableEntries {
+            let front = TicketOCRParser.numbers(from: entry.frontNumbersText)
+            let back = TicketOCRParser.numbers(from: entry.backNumbersText)
+            guard TicketOCRParser.isValid(front, in: kind.frontRange, expectedCount: kind.frontCount) else {
+                validationMessage = "请确认第 \(entry.sequence) 注前区号码的数量、范围和是否重复。"
+                return
+            }
+            guard TicketOCRParser.isValid(back, in: kind.backRange, expectedCount: kind.backCount) else {
+                validationMessage = "请确认第 \(entry.sequence) 注后区号码的数量、范围和是否重复。"
+                return
+            }
+            entries.append(TicketNumberDraft(frontNumbers: front.sorted(), backNumbers: back.sorted()))
         }
 
         onApply(
             TicketScanDraft(
                 issueNumber: LotteryIssue.normalize(issueNumber, for: kind),
-                frontNumbers: front.sorted(),
-                backNumbers: back.sorted(),
+                entries: entries,
                 confidence: confidence
             )
         )
@@ -310,21 +357,35 @@ struct TicketScanView: View {
     }
 }
 
+private struct EditableScannedEntry: Identifiable {
+    let id = UUID()
+    let sequence: Int
+    var frontNumbersText = ""
+    var backNumbersText = ""
+}
+
 private enum TicketOCRParser {
     static func analyze(lines: [RecognizedLine], kind: LotteryKind) -> TicketScanAnalysis {
         let issueNumber = lines
             .flatMap { numericTokens(from: $0.text) }
             .first(where: { $0.count == (kind == .doubleColorBall ? 7 : 5) }) ?? ""
 
-        let candidates = lines.flatMap { validCombinations(in: numbers(from: $0.text), kind: kind) }
-        let combinedCandidates = validCombinations(in: lines.flatMap { numbers(from: $0.text) }, kind: kind)
-        let extractedNumbers = candidates.first ?? combinedCandidates.first ?? ([], [])
+        var candidates = lines.flatMap { validCombinations(in: numbers(from: $0.text), kind: kind) }
+        if candidates.isEmpty {
+            candidates = validCombinations(in: lines.flatMap { numbers(from: $0.text) }, kind: kind)
+        }
+
+        var seen = Set<String>()
+        let entries = candidates.compactMap { front, back -> TicketNumberDraft? in
+            let key = "\(LotteryDraw.encode(front))|\(LotteryDraw.encode(back))"
+            guard seen.insert(key).inserted else { return nil }
+            return TicketNumberDraft(frontNumbers: front, backNumbers: back)
+        }
 
         return TicketScanAnalysis(
             lines: lines,
             issueNumber: LotteryIssue.normalize(issueNumber, for: kind),
-            frontNumbers: extractedNumbers.0,
-            backNumbers: extractedNumbers.1
+            entries: Array(entries.prefix(20))
         )
     }
 
@@ -348,7 +409,9 @@ private enum TicketOCRParser {
             let front = Array(candidate.prefix(kind.frontCount))
             let back = Array(candidate.suffix(kind.backCount))
             guard isValid(front, in: kind.frontRange, expectedCount: kind.frontCount),
-                  isValid(back, in: kind.backRange, expectedCount: kind.backCount) else {
+                  isValid(back, in: kind.backRange, expectedCount: kind.backCount),
+                  front == front.sorted(),
+                  back == back.sorted() else {
                 return nil
             }
             return (front, back)
