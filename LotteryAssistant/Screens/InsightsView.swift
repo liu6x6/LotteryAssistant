@@ -17,6 +17,20 @@ struct InsightsView: View {
         tickets.reduce(0) { $0 + $1.purchaseCost }
     }
 
+    private var totalIncome: Double {
+        tickets.reduce(0) { $0 + $1.estimatedPrize }
+    }
+
+    private var netIncome: Double {
+        totalIncome - totalCost
+    }
+
+    private var hasUnconfirmedPrize: Bool {
+        tickets.contains {
+            ($0.status == .won || $0.status == .redeemed) && $0.estimatedPrize == 0
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: AppTheme.Spacing.lg) {
@@ -91,9 +105,24 @@ struct InsightsView: View {
         VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
             Text("个人账本")
                 .font(.title3.bold())
-            HStack(spacing: AppTheme.Spacing.sm) {
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.flexible(), spacing: AppTheme.Spacing.sm), count: 2),
+                spacing: AppTheme.Spacing.sm
+            ) {
                 MetricCard(title: "已保存", value: "\(tickets.count) 张", symbol: "ticket.fill", tint: AppTheme.Color.primary)
                 MetricCard(title: "累计投入", value: String(format: "¥%.0f", totalCost), symbol: "creditcard.fill", tint: AppTheme.Color.accent)
+                MetricCard(title: "中奖收入", value: String(format: "¥%.0f", totalIncome), symbol: "yensign.circle.fill", tint: AppTheme.Color.positive)
+                MetricCard(
+                    title: "净收益",
+                    value: String(format: "%@¥%.0f", netIncome < 0 ? "-" : "", abs(netIncome)),
+                    symbol: netIncome >= 0 ? "chart.line.uptrend.xyaxis" : "chart.line.downtrend.xyaxis",
+                    tint: netIncome >= 0 ? AppTheme.Color.positive : AppTheme.Color.error
+                )
+            }
+            if hasUnconfirmedPrize {
+                Label("奖金待确认的彩票暂未计入中奖收入。", systemImage: "exclamationmark.circle")
+                    .font(.footnote)
+                    .foregroundStyle(AppTheme.Color.secondaryText)
             }
             Divider()
             Text("历史开奖样本")

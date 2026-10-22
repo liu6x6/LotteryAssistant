@@ -256,6 +256,7 @@
 				DEVELOPMENT_TEAM = ZH6TQH466Q;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "彩票助手";
 				INFOPLIST_KEY_NSCameraUsageDescription = "用于拍摄彩票票据、识别号码和扫描票面条形码。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -289,6 +290,7 @@
 				DEVELOPMENT_TEAM = ZH6TQH466Q;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "彩票助手";
 				INFOPLIST_KEY_NSCameraUsageDescription = "用于拍摄彩票票据、识别号码和扫描票面条形码。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
