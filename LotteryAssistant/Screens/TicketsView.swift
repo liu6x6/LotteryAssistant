@@ -196,6 +196,16 @@ struct TicketDetailView: View {
                                 .foregroundStyle(AppTheme.Color.secondaryText)
                         }
                     }
+                    if ticket.status == .won || ticket.status == .redeemed {
+                        VStack(alignment: .leading) {
+                            Text(ticket.estimatedPrize > 0 ? String(format: "¥%.0f", ticket.estimatedPrize) : "待确认")
+                                .font(.title3.bold())
+                                .foregroundStyle(ticket.estimatedPrize > 0 ? AppTheme.Color.positive : AppTheme.Color.secondaryText)
+                            Text("预计奖金")
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.Color.secondaryText)
+                        }
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)

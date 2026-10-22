@@ -75,6 +75,11 @@ enum TicketStatus: String, Codable, CaseIterable {
     }
 }
 
+struct PrizeAmount: Sendable, Equatable {
+    let level: String
+    let amount: Double
+}
+
 @Model
 final class LotteryDraw {
     @Attribute(.unique) var recordID: String
@@ -85,8 +90,18 @@ final class LotteryDraw {
     var backNumbersRaw: String
     var poolAmount: Double
     var sourceLabel: String
+    var prizeAmountsRaw: String = ""
 
-    init(kind: LotteryKind, issueNumber: String, drawDate: Date, frontNumbers: [Int], backNumbers: [Int], poolAmount: Double, sourceLabel: String = "内置演示数据") {
+    init(
+        kind: LotteryKind,
+        issueNumber: String,
+        drawDate: Date,
+        frontNumbers: [Int],
+        backNumbers: [Int],
+        poolAmount: Double,
+        prizeAmounts: [PrizeAmount] = [],
+        sourceLabel: String = "内置演示数据"
+    ) {
         self.recordID = "\(kind.rawValue)-\(issueNumber)"
         self.lotteryRawValue = kind.rawValue
         self.issueNumber = issueNumber
@@ -95,11 +110,17 @@ final class LotteryDraw {
         self.backNumbersRaw = Self.encode(backNumbers)
         self.poolAmount = poolAmount
         self.sourceLabel = sourceLabel
+        self.prizeAmountsRaw = PrizeAmountCodec.encode(prizeAmounts)
     }
 
     var kind: LotteryKind { LotteryKind(rawValue: lotteryRawValue) ?? .doubleColorBall }
     var frontNumbers: [Int] { Self.decode(frontNumbersRaw) }
     var backNumbers: [Int] { Self.decode(backNumbersRaw) }
+    var prizeAmounts: [PrizeAmount] { PrizeAmountCodec.decode(prizeAmountsRaw) }
+
+    func prizeAmount(for level: String) -> Double? {
+        prizeAmounts.first(where: { $0.level == level })?.amount
+    }
 
     static func encode(_ values: [Int]) -> String {
         values.sorted().map { String(format: "%02d", $0) }.joined(separator: ",")
@@ -107,6 +128,20 @@ final class LotteryDraw {
 
     static func decode(_ value: String) -> [Int] {
         value.split(separator: ",").compactMap { Int($0) }
+    }
+}
+
+enum PrizeAmountCodec {
+    static func encode(_ values: [PrizeAmount]) -> String {
+        values.map { "\($0.level)|\($0.amount)" }.joined(separator: ";")
+    }
+
+    static func decode(_ value: String) -> [PrizeAmount] {
+        value.split(separator: ";").compactMap { entry in
+            let parts = entry.split(separator: "|", maxSplits: 1)
+            guard parts.count == 2, let amount = Double(parts[1]) else { return nil }
+            return PrizeAmount(level: String(parts[0]), amount: amount)
+        }
     }
 }
 

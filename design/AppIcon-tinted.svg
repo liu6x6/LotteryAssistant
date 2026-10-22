@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  LotteryAssistant · App Icon · Tinted（单色 / 灰阶）
+  1024×1024 全出血方形（iOS 自动套 squircle 蒙版）
+
+  Tinted 变体策略
+  ─────────────────────────────────────────────────────────────
+  iOS 26 的 tinted 外观会把这张图按「亮度」映射到用户选的主题色上，
+  因此这里必须是纯灰阶：系统取亮度 → 上色。
+  · 背景 = 中深灰，保证上色后不会过亮
+  · 红球 = 亮灰球、蓝球 = 中灰球，两级明度差让双球结构在上色后依然可辨
+  · 去掉彩色光晕与彩色星芒，星芒改纯白；保留高光/边缘光维持球感
+  · 几何与 light/dark 完全一致
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024"
+     role="img" aria-label="LotteryAssistant">
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0"    stop-color="#4E4E55"/>
+      <stop offset="0.45" stop-color="#3B3B41"/>
+      <stop offset="1"    stop-color="#26262B"/>
+    </linearGradient>
+
+    <radialGradient id="glowTop" cx="0.24" cy="0.20" r="0.62">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+
+    <radialGradient id="vignette" cx="0.5" cy="0.5" r="0.72">
+      <stop offset="0.52" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="1"    stop-color="#000000" stop-opacity="0.42"/>
+    </radialGradient>
+
+    <!-- 亮灰球（原红球位置） -->
+    <radialGradient id="ballA" cx="0.335" cy="0.275" r="0.84">
+      <stop offset="0"    stop-color="#FFFFFF"/>
+      <stop offset="0.22" stop-color="#F2F2F5"/>
+      <stop offset="0.52" stop-color="#D8D8DE"/>
+      <stop offset="0.82" stop-color="#ACACB4"/>
+      <stop offset="1"    stop-color="#84848C"/>
+    </radialGradient>
+
+    <!-- 中灰球（原蓝球位置） -->
+    <radialGradient id="ballB" cx="0.335" cy="0.275" r="0.84">
+      <stop offset="0"    stop-color="#EDEDF1"/>
+      <stop offset="0.22" stop-color="#D2D2D8"/>
+      <stop offset="0.52" stop-color="#AEAEb6"/>
+      <stop offset="0.82" stop-color="#82828A"/>
+      <stop offset="1"    stop-color="#5E5E66"/>
+    </radialGradient>
+
+    <linearGradient id="rimA" x1="0.12" y1="0.08" x2="0.88" y2="0.96">
+      <stop offset="0"    stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset="0.56" stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset="0.80" stop-color="#FFFFFF" stop-opacity="0.35"/>
+      <stop offset="1"    stop-color="#FFFFFF" stop-opacity="0.65"/>
+    </linearGradient>
+
+    <linearGradient id="rimB" x1="0.12" y1="0.08" x2="0.88" y2="0.96">
+      <stop offset="0"    stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset="0.58" stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset="0.82" stop-color="#FFFFFF" stop-opacity="0.30"/>
+      <stop offset="1"    stop-color="#FFFFFF" stop-opacity="0.58"/>
+    </linearGradient>
+
+    <radialGradient id="specular" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0"   stop-color="#FFFFFF" stop-opacity="0.85"/>
+      <stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0.28"/>
+      <stop offset="1"   stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+
+    <filter id="dropBall" x="-45%" y="-45%" width="200%" height="200%">
+      <feDropShadow dx="20" dy="30" stdDeviation="26"
+                    flood-color="#000000" flood-opacity="0.50"/>
+    </filter>
+
+    <filter id="blurContact" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="24"/>
+    </filter>
+
+    <filter id="blurOrb" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="5"/>
+    </filter>
+
+    <filter id="blurSpark" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="7"/>
+    </filter>
+
+    <clipPath id="clipB">
+      <circle cx="648" cy="648" r="198"/>
+    </clipPath>
+  </defs>
+
+  <!-- 1. 背景 -->
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <rect width="1024" height="1024" fill="url(#glowTop)"/>
+
+  <!-- 2. 同心环 -->
+  <g fill="none" stroke="#FFFFFF" stroke-opacity="0.07">
+    <circle cx="512" cy="512" r="332" stroke-width="2"/>
+    <circle cx="512" cy="512" r="452" stroke-width="2.5"/>
+  </g>
+
+  <!-- 3. 失焦小球 -->
+  <g filter="url(#blurOrb)">
+    <circle cx="215" cy="265" r="40" fill="#FFFFFF" opacity="0.12"/>
+    <circle cx="845" cy="505" r="30" fill="#FFFFFF" opacity="0.13"/>
+    <circle cx="325" cy="845" r="34" fill="#FFFFFF" opacity="0.10"/>
+    <circle cx="565" cy="150" r="22" fill="#FFFFFF" opacity="0.12"/>
+    <circle cx="820" cy="775" r="26" fill="#FFFFFF" opacity="0.10"/>
+    <circle cx="150" cy="565" r="20" fill="#FFFFFF" opacity="0.08"/>
+  </g>
+
+  <!-- 4. 暗角 -->
+  <rect width="1024" height="1024" fill="url(#vignette)"/>
+
+  <!-- 5. 中灰球（后置） -->
+  <g filter="url(#dropBall)">
+    <circle cx="648" cy="648" r="198" fill="url(#ballB)"/>
+  </g>
+  <circle cx="648" cy="648" r="196.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.42" stroke-width="3"/>
+  <circle cx="648" cy="648" r="192" fill="none" stroke="url(#rimB)" stroke-width="9"/>
+  <ellipse cx="588" cy="580" rx="63" ry="46" fill="url(#specular)" opacity="0.62"
+           transform="rotate(-38 588 580)"/>
+
+  <!-- 6. 亮灰球投在中灰球上的接触阴影 -->
+  <g clip-path="url(#clipB)">
+    <circle cx="425" cy="425" r="232" fill="#000000" opacity="0.42" filter="url(#blurContact)"/>
+  </g>
+
+  <!-- 7. 亮灰球（前置） -->
+  <g filter="url(#dropBall)">
+    <circle cx="413" cy="413" r="232" fill="url(#ballA)"/>
+  </g>
+  <circle cx="413" cy="413" r="230.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.48" stroke-width="3"/>
+  <circle cx="413" cy="413" r="226" fill="none" stroke="url(#rimA)" stroke-width="10"/>
+  <ellipse cx="341" cy="330" rx="76" ry="55" fill="url(#specular)" opacity="0.78"
+           transform="rotate(-38 341 330)"/>
+  <path d="M 244 285 A 232 232 0 0 1 402 181" fill="none"
+        stroke="#FFFFFF" stroke-opacity="0.32" stroke-width="5" stroke-linecap="round"/>
+
+  <!-- 8. 星芒（纯白） -->
+  <g filter="url(#blurSpark)" opacity="0.40">
+    <path transform="translate(800 268) scale(52)" fill="#FFFFFF"
+          d="M0 -1Q0.14 -0.14 1 0Q0.14 0.14 0 1Q-0.14 0.14 -1 0Q-0.14 -0.14 0 -1Z"/>
+    <path transform="translate(232 742) scale(38)" fill="#FFFFFF"
+          d="M0 -1Q0.14 -0.14 1 0Q0.14 0.14 0 1Q-0.14 0.14 -1 0Q-0.14 -0.14 0 -1Z"/>
+  </g>
+  <g>
+    <path transform="translate(800 268) scale(46)" fill="#FFFFFF"
+          d="M0 -1Q0.14 -0.14 1 0Q0.14 0.14 0 1Q-0.14 0.14 -1 0Q-0.14 -0.14 0 -1Z"/>
+    <path transform="translate(232 742) scale(33)" fill="#FFFFFF" opacity="0.92"
+          d="M0 -1Q0.14 -0.14 1 0Q0.14 0.14 0 1Q-0.14 0.14 -1 0Q-0.14 -0.14 0 -1Z"/>
+    <path transform="translate(688 176) scale(19)" fill="#FFFFFF" opacity="0.85"
+          d="M0 -1Q0.14 -0.14 1 0Q0.14 0.14 0 1Q-0.14 0.14 -1 0Q-0.14 -0.14 0 -1Z"/>
+    <path transform="translate(168 452) scale(14)" fill="#FFFFFF" opacity="0.60"
+          d="M0 -1Q0.14 -0.14 1 0Q0.14 0.14 0 1Q-0.14 0.14 -1 0Q-0.14 -0.14 0 -1Z"/>
+  </g>
+</svg>

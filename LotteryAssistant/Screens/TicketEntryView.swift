@@ -46,7 +46,7 @@ struct TicketEntryView: View {
                 Button {
                     isPresentingScanner = true
                 } label: {
-                    Label("扫描票据照片", systemImage: "doc.text.viewfinder")
+                    Label("扫描或导入票据", systemImage: "doc.text.viewfinder")
                 }
             } footer: {
                 Text("识别出的内容必须由您确认后才会保存。")
@@ -136,7 +136,7 @@ struct TicketEntryView: View {
         )
 
         if let draw = draws.first(where: { $0.kind == kind && $0.issueNumber == issueNumber }) {
-            PrizeChecker.apply(PrizeChecker.evaluate(ticket: ticket, draw: draw), to: ticket)
+            PrizeChecker.apply(PrizeChecker.evaluate(ticket: ticket, draw: draw), to: ticket, using: draw)
         }
 
         modelContext.insert(ticket)

@@ -8,6 +8,7 @@ struct LotteryDrawPayload: Sendable {
     let frontNumbers: [Int]
     let backNumbers: [Int]
     let poolAmount: Double
+    let prizeAmounts: [PrizeAmount]
     let sourceLabel: String
 }
 
@@ -56,6 +57,13 @@ struct OfficialLotteryDataProvider: LotteryDataProviding {
                   let pool = Double(draw.poolmoney) else {
                 return nil
             }
+            let prizeAmounts = draw.prizegrades.compactMap { grade -> PrizeAmount? in
+                guard (1...6).contains(grade.type),
+                      let amount = Double(grade.typemoney) else {
+                    return nil
+                }
+                return PrizeAmount(level: PrizeLevel.name(for: grade.type), amount: amount)
+            }
             return LotteryDrawPayload(
                 lottery: .doubleColorBall,
                 issueNumber: LotteryIssue.normalize(draw.code, for: .doubleColorBall),
@@ -63,6 +71,7 @@ struct OfficialLotteryDataProvider: LotteryDataProviding {
                 frontNumbers: front,
                 backNumbers: back,
                 poolAmount: pool,
+                prizeAmounts: prizeAmounts,
                 sourceLabel: sourceLabel
             )
         }
@@ -94,6 +103,12 @@ struct OfficialLotteryDataProvider: LotteryDataProviding {
                   let pool = NumberParser.amount(from: draw.poolBalanceAfterdraw) else {
                 return nil
             }
+            let prizeAmounts = draw.prizeLevelList.compactMap { level -> PrizeAmount? in
+                guard let amount = Double(level.stakeAmountFormat), amount > 0 else {
+                    return nil
+                }
+                return PrizeAmount(level: level.prizeLevel, amount: amount)
+            }
             return LotteryDrawPayload(
                 lottery: .superLotto,
                 issueNumber: LotteryIssue.normalize(draw.lotteryDrawNum, for: .superLotto),
@@ -101,6 +116,7 @@ struct OfficialLotteryDataProvider: LotteryDataProviding {
                 frontNumbers: Array(values.prefix(5)),
                 backNumbers: Array(values.suffix(2)),
                 poolAmount: pool,
+                prizeAmounts: prizeAmounts,
                 sourceLabel: sourceLabel
             )
         }
@@ -166,6 +182,7 @@ struct YangLotteryDataProvider: LotteryDataProviding {
                 frontNumbers: front,
                 backNumbers: back,
                 poolAmount: 0,
+                prizeAmounts: [],
                 sourceLabel: sourceLabel
             )
         }
@@ -182,6 +199,7 @@ struct YangLotteryDataProvider: LotteryDataProviding {
                 frontNumbers: front,
                 backNumbers: back,
                 poolAmount: 0,
+                prizeAmounts: [],
                 sourceLabel: sourceLabel
             )
         }
@@ -196,30 +214,42 @@ struct DrawSyncService {
     func synchronize(context: ModelContext) async throws -> Int {
         let existingRecords = try context.fetch(FetchDescriptor<LotteryDraw>())
         let payloads = try await provider.fetchDraws(includeHistory: existingRecords.isEmpty)
-        var recordIDs = Set(existingRecords.map(\.recordID))
+        var recordsByID = Dictionary(uniqueKeysWithValues: existingRecords.map { ($0.recordID, $0) })
         var insertedCount = 0
 
         for payload in payloads {
             let normalizedIssue = LotteryIssue.normalize(payload.issueNumber, for: payload.lottery)
             let recordID = "\(payload.lottery.rawValue)-\(normalizedIssue)"
-            guard isValid(payload: payload), !recordIDs.contains(recordID) else { continue }
+            guard isValid(payload: payload) else { continue }
 
-            context.insert(
-                LotteryDraw(
-                    kind: payload.lottery,
-                    issueNumber: normalizedIssue,
-                    drawDate: payload.drawDate,
-                    frontNumbers: payload.frontNumbers,
-                    backNumbers: payload.backNumbers,
-                    poolAmount: payload.poolAmount,
-                    sourceLabel: payload.sourceLabel
-                )
+            if let existing = recordsByID[recordID] {
+                if existing.poolAmount == 0, payload.poolAmount > 0 {
+                    existing.poolAmount = payload.poolAmount
+                    existing.sourceLabel = payload.sourceLabel
+                }
+                if existing.prizeAmounts.isEmpty, !payload.prizeAmounts.isEmpty {
+                    existing.prizeAmountsRaw = PrizeAmountCodec.encode(payload.prizeAmounts)
+                }
+                continue
+            }
+
+            let draw = LotteryDraw(
+                kind: payload.lottery,
+                issueNumber: normalizedIssue,
+                drawDate: payload.drawDate,
+                frontNumbers: payload.frontNumbers,
+                backNumbers: payload.backNumbers,
+                poolAmount: payload.poolAmount,
+                prizeAmounts: payload.prizeAmounts,
+                sourceLabel: payload.sourceLabel
             )
-            recordIDs.insert(recordID)
+            context.insert(draw)
+            recordsByID[recordID] = draw
             insertedCount += 1
         }
 
         guard !payloads.isEmpty else { throw LotteryDataProviderError.noValidDraws }
+        try updateTicketResults(context: context, drawsByRecordID: recordsByID)
         try context.save()
         return insertedCount
     }
@@ -232,6 +262,21 @@ struct DrawSyncService {
             && Set(payload.backNumbers).count == payload.backNumbers.count
             && payload.frontNumbers.allSatisfy(kind.frontRange.contains)
             && payload.backNumbers.allSatisfy(kind.backRange.contains)
+    }
+
+    private func updateTicketResults(context: ModelContext, drawsByRecordID: [String: LotteryDraw]) throws {
+        let tickets = try context.fetch(FetchDescriptor<LotteryTicket>())
+        for ticket in tickets where ticket.status != .redeemed {
+            let recordID = "\(ticket.kind.rawValue)-\(LotteryIssue.normalize(ticket.issueNumber, for: ticket.kind))"
+            guard let draw = drawsByRecordID[recordID] else { continue }
+            PrizeChecker.apply(PrizeChecker.evaluate(ticket: ticket, draw: draw), to: ticket, using: draw)
+        }
+    }
+}
+
+private enum PrizeLevel {
+    static func name(for type: Int) -> String {
+        ["", "一等奖", "二等奖", "三等奖", "四等奖", "五等奖", "六等奖"][type]
     }
 }
 
@@ -317,6 +362,12 @@ private struct CWLDraw: Decodable {
     let red: String
     let blue: String
     let poolmoney: String
+    let prizegrades: [CWLPrizeGrade]
+}
+
+private struct CWLPrizeGrade: Decodable {
+    let type: Int
+    let typemoney: String
 }
 
 private struct SportteryHistoryResponse: Decodable {
@@ -334,6 +385,12 @@ private struct SportteryDraw: Decodable {
     let lotteryDrawTime: String
     let lotteryDrawResult: String
     let poolBalanceAfterdraw: String
+    let prizeLevelList: [SportteryPrizeLevel]
+}
+
+private struct SportteryPrizeLevel: Decodable {
+    let prizeLevel: String
+    let stakeAmountFormat: String
 }
 
 private struct YangSSQDraw: Decodable {

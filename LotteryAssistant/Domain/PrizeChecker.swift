@@ -41,12 +41,29 @@ enum PrizeChecker {
         return PrizeEvaluation(matchedFrontCount: front, matchedBackCount: back, prizeLevel: level)
     }
 
-    static func apply(_ evaluation: PrizeEvaluation, to ticket: LotteryTicket) {
+    static func apply(_ evaluation: PrizeEvaluation, to ticket: LotteryTicket, using draw: LotteryDraw) {
         ticket.matchedFrontCount = evaluation.matchedFrontCount
         ticket.matchedBackCount = evaluation.matchedBackCount
         ticket.prizeLevel = evaluation.prizeLevel
-        ticket.estimatedPrize = 0
+        ticket.estimatedPrize = estimatedPrize(for: evaluation, ticket: ticket, draw: draw) ?? 0
         ticket.checkedAt = .now
         ticket.statusRawValue = evaluation.isWinner ? TicketStatus.won.rawValue : TicketStatus.notWon.rawValue
+    }
+
+    private static func estimatedPrize(for evaluation: PrizeEvaluation, ticket: LotteryTicket, draw: LotteryDraw) -> Double? {
+        guard let level = evaluation.prizeLevel, let baseAmount = draw.prizeAmount(for: level) else {
+            return nil
+        }
+
+        var amount = baseAmount
+        if ticket.kind == .superLotto,
+           ticket.isAdditional,
+           level == "一等奖" || level == "二等奖" {
+            guard let additionalAmount = draw.prizeAmount(for: "\(level)(追加)") else {
+                return nil
+            }
+            amount += additionalAmount
+        }
+        return amount * Double(ticket.multiplier)
     }
 }
