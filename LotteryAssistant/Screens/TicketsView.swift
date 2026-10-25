@@ -3,13 +3,9 @@ import SwiftData
 
 struct TicketListView: View {
     @Binding var isPresentingTicketEntry: Bool
-    @Query(sort: \LotteryTicket.purchaseDate, order: .reverse) private var tickets: [LotteryTicket]
     @State private var selectedStatus: TicketStatus?
-
-    private var visibleTickets: [LotteryTicket] {
-        guard let selectedStatus else { return tickets }
-        return tickets.filter { $0.status == selectedStatus }
-    }
+    @State private var pageCount = 1
+    @State private var lastRequestedPage: Int?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -17,10 +13,14 @@ struct TicketListView: View {
                 HStack(spacing: AppTheme.Spacing.xs) {
                     TicketStatusFilter(title: "全部", isSelected: selectedStatus == nil) {
                         selectedStatus = nil
+                        pageCount = 1
+                        lastRequestedPage = nil
                     }
                     ForEach(TicketStatus.allCases, id: \.rawValue) { status in
                         TicketStatusFilter(title: status.displayName, isSelected: selectedStatus == status) {
                             selectedStatus = status
+                            pageCount = 1
+                            lastRequestedPage = nil
                         }
                     }
                 }
@@ -29,20 +29,10 @@ struct TicketListView: View {
             }
             .background(.bar)
 
-            Group {
-                if visibleTickets.isEmpty {
-                    EmptyState(symbol: "ticket", title: "还没有保存的彩票", message: "录入彩票后，开奖时即可自动核验。")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    List(visibleTickets) { ticket in
-                        NavigationLink {
-                            TicketDetailView(ticket: ticket)
-                        } label: {
-                            TicketListRow(ticket: ticket)
-                        }
-                    }
-                    .listStyle(.plain)
-                }
+            TicketPageList(status: selectedStatus, pageCount: pageCount) { page in
+                guard page == pageCount - 1, lastRequestedPage != page else { return }
+                lastRequestedPage = page
+                pageCount += 1
             }
         }
         .navigationTitle("我的彩票")
@@ -54,6 +44,74 @@ struct TicketListView: View {
                     Image(systemName: "plus")
                 }
                 .accessibilityLabel("录入彩票")
+            }
+        }
+    }
+}
+
+private struct TicketPageList: View {
+    let status: TicketStatus?
+    let pageCount: Int
+    let onLoadMore: (Int) -> Void
+
+    var body: some View {
+        List {
+            ForEach(0..<pageCount, id: \.self) { page in
+                TicketPageRows(
+                    status: status,
+                    page: page,
+                    isLastPage: page == pageCount - 1,
+                    onLoadMore: onLoadMore
+                )
+            }
+        }
+        .listStyle(.plain)
+    }
+}
+
+private struct TicketPageRows: View {
+    @Query private var tickets: [LotteryTicket]
+    let page: Int
+    let isLastPage: Bool
+    let onLoadMore: (Int) -> Void
+
+    init(status: TicketStatus?, page: Int, isLastPage: Bool, onLoadMore: @escaping (Int) -> Void) {
+        var descriptor: FetchDescriptor<LotteryTicket>
+        if let status {
+            let rawValue = status.rawValue
+            descriptor = FetchDescriptor(
+                predicate: #Predicate { $0.statusRawValue == rawValue },
+                sortBy: [SortDescriptor(\.purchaseDate, order: .reverse)]
+            )
+        } else {
+            descriptor = FetchDescriptor(sortBy: [SortDescriptor(\.purchaseDate, order: .reverse)])
+        }
+        descriptor.fetchLimit = 25
+        descriptor.fetchOffset = page * 25
+        _tickets = Query(descriptor, animation: .default)
+        self.page = page
+        self.isLastPage = isLastPage
+        self.onLoadMore = onLoadMore
+    }
+
+    var body: some View {
+        if page == 0 && tickets.isEmpty {
+            EmptyState(symbol: "ticket", title: "还没有保存的彩票", message: "录入彩票后，开奖时即可自动核验。")
+        } else {
+            ForEach(tickets) { ticket in
+                NavigationLink {
+                    TicketDetailView(ticket: ticket)
+                } label: {
+                    TicketListRow(ticket: ticket)
+                }
+                .onAppear {
+                    guard isLastPage,
+                          ticket.id == tickets.last?.id,
+                          tickets.count == 25 else {
+                        return
+                    }
+                    onLoadMore(page)
+                }
             }
         }
     }

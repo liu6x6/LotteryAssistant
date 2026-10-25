@@ -6,13 +6,10 @@ struct DrawListView: View {
     @AppStorage(LotteryRuleSettings.isDoubleColorBallFortunePrizeEnabled)
     private var isDoubleColorBallFortunePrizeEnabled = false
     @State private var selectedKind: LotteryKind = .doubleColorBall
+    @State private var pageCount = 1
+    @State private var lastRequestedPage: Int?
     @State private var isSynchronizing = false
     @State private var syncMessage: String?
-    @Query(sort: \LotteryDraw.drawDate, order: .reverse) private var draws: [LotteryDraw]
-
-    private var filteredDraws: [LotteryDraw] {
-        draws.filter { $0.kind == selectedKind }
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -22,24 +19,18 @@ struct DrawListView: View {
                 }
             }
             .pickerStyle(.segmented)
+            .onChange(of: selectedKind) {
+                pageCount = 1
+                lastRequestedPage = nil
+            }
             .padding(.horizontal, AppTheme.Spacing.md)
             .padding(.vertical, AppTheme.Spacing.xs)
             .background(.bar)
 
-            Group {
-                if filteredDraws.isEmpty {
-                    EmptyState(symbol: "calendar.badge.exclamationmark", title: "暂无开奖记录", message: "该彩种的开奖数据尚未同步。")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    List(filteredDraws) { draw in
-                        NavigationLink {
-                            DrawDetailView(draw: draw)
-                        } label: {
-                            DrawListRow(draw: draw)
-                        }
-                    }
-                    .listStyle(.plain)
-                }
+            DrawPageList(kind: selectedKind, pageCount: pageCount) { page in
+                guard page == pageCount - 1, lastRequestedPage != page else { return }
+                lastRequestedPage = page
+                pageCount += 1
             }
         }
         .navigationTitle("开奖中心")
@@ -84,6 +75,69 @@ struct DrawListView: View {
             syncMessage = count == 0 ? "没有发现新的开奖期次。" : "已同步 \(count) 期最新开奖数据。"
         } catch {
             syncMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct DrawPageList: View {
+    let kind: LotteryKind
+    let pageCount: Int
+    let onLoadMore: (Int) -> Void
+
+    var body: some View {
+        List {
+            ForEach(0..<pageCount, id: \.self) { page in
+                DrawPageRows(
+                    kind: kind,
+                    page: page,
+                    isLastPage: page == pageCount - 1,
+                    onLoadMore: onLoadMore
+                )
+            }
+        }
+        .listStyle(.plain)
+    }
+}
+
+private struct DrawPageRows: View {
+    @Query private var draws: [LotteryDraw]
+    let page: Int
+    let isLastPage: Bool
+    let onLoadMore: (Int) -> Void
+
+    init(kind: LotteryKind, page: Int, isLastPage: Bool, onLoadMore: @escaping (Int) -> Void) {
+        let rawValue = kind.rawValue
+        var descriptor = FetchDescriptor<LotteryDraw>(
+            predicate: #Predicate { $0.lotteryRawValue == rawValue },
+            sortBy: [SortDescriptor(\.drawDate, order: .reverse)]
+        )
+        descriptor.fetchLimit = 25
+        descriptor.fetchOffset = page * 25
+        _draws = Query(descriptor, animation: .default)
+        self.page = page
+        self.isLastPage = isLastPage
+        self.onLoadMore = onLoadMore
+    }
+
+    var body: some View {
+        if page == 0 && draws.isEmpty {
+            EmptyState(symbol: "calendar.badge.exclamationmark", title: "暂无开奖记录", message: "该彩种的开奖数据尚未同步。")
+        } else {
+            ForEach(draws) { draw in
+                NavigationLink {
+                    DrawDetailView(draw: draw)
+                } label: {
+                    DrawListRow(draw: draw)
+                }
+                .onAppear {
+                    guard isLastPage,
+                          draw.recordID == draws.last?.recordID,
+                          draws.count == 25 else {
+                        return
+                    }
+                    onLoadMore(page)
+                }
+            }
         }
     }
 }
