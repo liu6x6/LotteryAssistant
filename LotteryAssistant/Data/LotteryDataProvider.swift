@@ -211,7 +211,10 @@ struct YangLotteryDataProvider: LotteryDataProviding {
 struct DrawSyncService {
     let provider: any LotteryDataProviding
 
-    func synchronize(context: ModelContext) async throws -> Int {
+    func synchronize(
+        context: ModelContext,
+        isDoubleColorBallFortunePrizeEnabled: Bool = false
+    ) async throws -> Int {
         let existingRecords = try context.fetch(FetchDescriptor<LotteryDraw>())
         let payloads = try await provider.fetchDraws(includeHistory: existingRecords.isEmpty)
         var recordsByID = Dictionary(uniqueKeysWithValues: existingRecords.map { ($0.recordID, $0) })
@@ -249,7 +252,11 @@ struct DrawSyncService {
         }
 
         guard !payloads.isEmpty else { throw LotteryDataProviderError.noValidDraws }
-        try updateTicketResults(context: context, drawsByRecordID: recordsByID)
+        try updateTicketResults(
+            context: context,
+            drawsByRecordID: recordsByID,
+            isDoubleColorBallFortunePrizeEnabled: isDoubleColorBallFortunePrizeEnabled
+        )
         try context.save()
         return insertedCount
     }
@@ -264,12 +271,24 @@ struct DrawSyncService {
             && payload.backNumbers.allSatisfy(kind.backRange.contains)
     }
 
-    private func updateTicketResults(context: ModelContext, drawsByRecordID: [String: LotteryDraw]) throws {
+    private func updateTicketResults(
+        context: ModelContext,
+        drawsByRecordID: [String: LotteryDraw],
+        isDoubleColorBallFortunePrizeEnabled: Bool
+    ) throws {
         let tickets = try context.fetch(FetchDescriptor<LotteryTicket>())
-        for ticket in tickets where ticket.status != .redeemed {
+        for ticket in tickets where ticket.status == .pendingDraw {
             let recordID = "\(ticket.kind.rawValue)-\(LotteryIssue.normalize(ticket.issueNumber, for: ticket.kind))"
             guard let draw = drawsByRecordID[recordID] else { continue }
-            PrizeChecker.apply(PrizeChecker.evaluate(ticket: ticket, draw: draw), to: ticket, using: draw)
+            PrizeChecker.apply(
+                PrizeChecker.evaluate(
+                    ticket: ticket,
+                    draw: draw,
+                    isDoubleColorBallFortunePrizeEnabled: isDoubleColorBallFortunePrizeEnabled
+                ),
+                to: ticket,
+                using: draw
+            )
         }
     }
 }

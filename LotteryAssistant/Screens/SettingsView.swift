@@ -2,9 +2,17 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
+    @AppStorage(LotteryRuleSettings.isDoubleColorBallFortunePrizeEnabled)
+    private var isDoubleColorBallFortunePrizeEnabled = false
 
     var body: some View {
         Form {
+            Section("中奖规则") {
+                Toggle("启用双色球福运奖", isOn: $isDoubleColorBallFortunePrizeEnabled)
+                Text("启用后，双色球恰好命中 3 个红球且未命中蓝球的单注按福运奖计 ¥5。该设置仅在后续首次核验的新票据结果中生效，已核验的历史结果不会改变。")
+                    .font(.footnote)
+                    .foregroundStyle(AppTheme.Color.secondaryText)
+            }
             Section("开奖数据") {
                 LabeledContent("双色球主数据源", value: "中国福利彩票官网")
                 LabeledContent("大乐透主数据源", value: "中国体育彩票官网")

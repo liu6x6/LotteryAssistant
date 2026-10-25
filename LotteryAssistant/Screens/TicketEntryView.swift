@@ -1,13 +1,21 @@
 import SwiftUI
 import SwiftData
 
+struct TicketEntryPrefill {
+    let kind: LotteryKind
+    let entries: [TicketNumberDraft]
+}
+
 struct TicketEntryView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @AppStorage(LotteryRuleSettings.isDoubleColorBallFortunePrizeEnabled)
+    private var isDoubleColorBallFortunePrizeEnabled = false
     @Query(sort: \LotteryDraw.drawDate, order: .reverse) private var draws: [LotteryDraw]
     @Query private var existingTickets: [LotteryTicket]
 
     private let ticket: LotteryTicket?
+    private let prefill: TicketEntryPrefill?
 
     @State private var kind: LotteryKind
     @State private var issueNumber: String
@@ -19,14 +27,17 @@ struct TicketEntryView: View {
     @State private var isPresentingScanner = false
     @State private var additionalScannedEntries: [TicketNumberDraft] = []
 
-    init(ticket: LotteryTicket? = nil) {
+    init(ticket: LotteryTicket? = nil, prefill: TicketEntryPrefill? = nil) {
         self.ticket = ticket
-        _kind = State(initialValue: ticket?.kind ?? .doubleColorBall)
+        self.prefill = prefill
+        let initialEntry = prefill?.entries.first
+        _kind = State(initialValue: ticket?.kind ?? prefill?.kind ?? .doubleColorBall)
         _issueNumber = State(initialValue: ticket?.issueNumber ?? "")
-        _frontNumbers = State(initialValue: Set(ticket?.frontNumbers ?? []))
-        _backNumbers = State(initialValue: Set(ticket?.backNumbers ?? []))
+        _frontNumbers = State(initialValue: Set(ticket?.frontNumbers ?? initialEntry?.frontNumbers ?? []))
+        _backNumbers = State(initialValue: Set(ticket?.backNumbers ?? initialEntry?.backNumbers ?? []))
         _multiplier = State(initialValue: ticket?.multiplier ?? 1)
         _isAdditional = State(initialValue: ticket?.isAdditional ?? false)
+        _additionalScannedEntries = State(initialValue: ticket == nil ? Array(prefill?.entries.dropFirst() ?? []) : [])
     }
 
     private var latestIssue: String {
@@ -259,7 +270,15 @@ struct TicketEntryView: View {
         }) else {
             return
         }
-        PrizeChecker.apply(PrizeChecker.evaluate(ticket: ticket, draw: draw), to: ticket, using: draw)
+        PrizeChecker.apply(
+            PrizeChecker.evaluate(
+                ticket: ticket,
+                draw: draw,
+                isDoubleColorBallFortunePrizeEnabled: isDoubleColorBallFortunePrizeEnabled
+            ),
+            to: ticket,
+            using: draw
+        )
     }
 }
 

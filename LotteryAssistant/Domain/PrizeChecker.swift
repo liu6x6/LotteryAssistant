@@ -8,8 +8,16 @@ struct PrizeEvaluation {
     var isWinner: Bool { prizeLevel != nil }
 }
 
+enum LotteryRuleSettings {
+    static let isDoubleColorBallFortunePrizeEnabled = "isDoubleColorBallFortunePrizeEnabled"
+}
+
 enum PrizeChecker {
-    static func evaluate(ticket: LotteryTicket, draw: LotteryDraw) -> PrizeEvaluation {
+    static func evaluate(
+        ticket: LotteryTicket,
+        draw: LotteryDraw,
+        isDoubleColorBallFortunePrizeEnabled: Bool = false
+    ) -> PrizeEvaluation {
         let front = Set(ticket.frontNumbers).intersection(draw.frontNumbers).count
         let back = Set(ticket.backNumbers).intersection(draw.backNumbers).count
         let level: String?
@@ -23,6 +31,7 @@ enum PrizeChecker {
             case (5, 0), (4, 1): level = "四等奖"
             case (4, 0), (3, 1): level = "五等奖"
             case (0...2, 1): level = "六等奖"
+            case (3, 0) where isDoubleColorBallFortunePrizeEnabled: level = "福运奖"
             default: level = nil
             }
         case .superLotto:
@@ -51,11 +60,19 @@ enum PrizeChecker {
     }
 
     private static func estimatedPrize(for evaluation: PrizeEvaluation, ticket: LotteryTicket, draw: LotteryDraw) -> Double? {
-        guard let level = evaluation.prizeLevel, let baseAmount = draw.prizeAmount(for: level) else {
+        guard let level = evaluation.prizeLevel else {
             return nil
         }
 
-        var amount = baseAmount
+        var amount: Double
+        if level == "福运奖" {
+            amount = 5
+        } else if let baseAmount = draw.prizeAmount(for: level) {
+            amount = baseAmount
+        } else {
+            return nil
+        }
+
         if ticket.kind == .superLotto,
            ticket.isAdditional,
            level == "一等奖" || level == "二等奖" {

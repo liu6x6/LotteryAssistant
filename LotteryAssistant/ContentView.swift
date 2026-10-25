@@ -3,6 +3,7 @@ import SwiftData
 
 struct ContentView: View {
     @State private var isPresentingTicketEntry = false
+    @State private var ticketEntryPrefill: TicketEntryPrefill?
 
     var body: some View {
         TabView {
@@ -22,14 +23,22 @@ struct ContentView: View {
             .tabItem { Label("彩票", systemImage: "ticket.fill") }
 
             NavigationStack {
-                InsightsView(isPresentingTicketEntry: $isPresentingTicketEntry)
+                InsightsView(
+                    isPresentingTicketEntry: $isPresentingTicketEntry,
+                    ticketEntryPrefill: $ticketEntryPrefill
+                )
             }
             .tabItem { Label("选号", systemImage: "chart.bar.xaxis") }
         }
         .tint(AppTheme.Color.primary)
         .sheet(isPresented: $isPresentingTicketEntry) {
             NavigationStack {
-                TicketEntryView()
+                TicketEntryView(prefill: ticketEntryPrefill)
+            }
+        }
+        .onChange(of: isPresentingTicketEntry) {
+            if !isPresentingTicketEntry {
+                ticketEntryPrefill = nil
             }
         }
     }

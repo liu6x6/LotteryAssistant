@@ -3,6 +3,8 @@ import SwiftData
 
 struct DrawListView: View {
     @Environment(\.modelContext) private var modelContext
+    @AppStorage(LotteryRuleSettings.isDoubleColorBallFortunePrizeEnabled)
+    private var isDoubleColorBallFortunePrizeEnabled = false
     @State private var selectedKind: LotteryKind = .doubleColorBall
     @State private var isSynchronizing = false
     @State private var syncMessage: String?
@@ -75,7 +77,10 @@ struct DrawListView: View {
                 primary: OfficialLotteryDataProvider(),
                 fallback: YangLotteryDataProvider()
             )
-            let count = try await DrawSyncService(provider: provider).synchronize(context: modelContext)
+            let count = try await DrawSyncService(provider: provider).synchronize(
+                context: modelContext,
+                isDoubleColorBallFortunePrizeEnabled: isDoubleColorBallFortunePrizeEnabled
+            )
             syncMessage = count == 0 ? "没有发现新的开奖期次。" : "已同步 \(count) 期最新开奖数据。"
         } catch {
             syncMessage = error.localizedDescription

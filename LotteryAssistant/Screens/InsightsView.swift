@@ -3,11 +3,12 @@ import SwiftData
 
 struct InsightsView: View {
     @Binding var isPresentingTicketEntry: Bool
+    @Binding var ticketEntryPrefill: TicketEntryPrefill?
     @Query(sort: \LotteryDraw.drawDate, order: .reverse) private var draws: [LotteryDraw]
     @Query(sort: \LotteryTicket.purchaseDate, order: .reverse) private var tickets: [LotteryTicket]
     @State private var kind: LotteryKind = .doubleColorBall
-    @State private var generatedFront: [Int] = []
-    @State private var generatedBack: [Int] = []
+    @State private var generatedEntries: [TicketNumberDraft] = []
+    @State private var generatedTicketCount = 1
 
     private var relevantDraws: [LotteryDraw] {
         draws.filter { $0.kind == kind }
@@ -50,8 +51,10 @@ struct InsightsView: View {
         .navigationTitle("选号与统计")
         .background(Color(uiColor: .systemGroupedBackground))
         .onChange(of: kind) {
-            generatedFront = []
-            generatedBack = []
+            generatedEntries = []
+        }
+        .onChange(of: generatedTicketCount) {
+            generatedEntries = []
         }
     }
 
@@ -61,7 +64,7 @@ struct InsightsView: View {
                 VStack(alignment: .leading, spacing: AppTheme.Spacing.xxs) {
                     Text("随机选号")
                         .font(.title3.bold())
-                    Text("随机生成一注 \(kind.displayName) 号码")
+                    Text("随机生成 1–5 注 \(kind.displayName) 号码")
                         .font(.caption)
                         .foregroundStyle(AppTheme.Color.secondaryText)
                 }
@@ -71,28 +74,42 @@ struct InsightsView: View {
                     .foregroundStyle(AppTheme.Color.accent)
             }
 
-            if generatedFront.isEmpty {
+            Stepper("生成数量：\(generatedTicketCount) 注", value: $generatedTicketCount, in: 1...5)
+
+            if generatedEntries.isEmpty {
                 Text("点击下方按钮生成号码")
                     .font(.subheadline)
                     .foregroundStyle(AppTheme.Color.secondaryText)
                     .frame(maxWidth: .infinity, minHeight: 44)
             } else {
-                NumberRow(frontNumbers: generatedFront, backNumbers: generatedBack)
-                    .frame(maxWidth: .infinity)
+                VStack(spacing: AppTheme.Spacing.sm) {
+                    ForEach(Array(generatedEntries.enumerated()), id: \.element.id) { index, entry in
+                        HStack {
+                            Text("第 \(index + 1) 注")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(AppTheme.Color.secondaryText)
+                            NumberRow(frontNumbers: entry.frontNumbers, backNumbers: entry.backNumbers)
+                        }
+                    }
+                }
             }
 
             Button {
                 generateNumbers()
             } label: {
-                Label(generatedFront.isEmpty ? "随机生成一注" : "换一注号码", systemImage: "shuffle")
+                Label(
+                    generatedEntries.isEmpty ? "随机生成 \(generatedTicketCount) 注" : "重新生成 \(generatedTicketCount) 注",
+                    systemImage: "shuffle"
+                )
             }
             .buttonStyle(PrimaryButtonStyle())
 
-            if !generatedFront.isEmpty {
+            if !generatedEntries.isEmpty {
                 Button {
+                    ticketEntryPrefill = TicketEntryPrefill(kind: kind, entries: generatedEntries)
                     isPresentingTicketEntry = true
                 } label: {
-                    Text("去录入这张彩票")
+                    Text("录入这 \(generatedEntries.count) 张彩票")
                         .frame(maxWidth: .infinity)
                 }
                 .font(.subheadline.weight(.semibold))
@@ -141,7 +158,17 @@ struct InsightsView: View {
     }
 
     private func generateNumbers() {
-        generatedFront = Array(kind.frontRange).shuffled().prefix(kind.frontCount).sorted()
-        generatedBack = Array(kind.backRange).shuffled().prefix(kind.backCount).sorted()
+        var entries: [TicketNumberDraft] = []
+        var signatures = Set<String>()
+
+        while entries.count < generatedTicketCount {
+            let front = Array(kind.frontRange).shuffled().prefix(kind.frontCount).sorted()
+            let back = Array(kind.backRange).shuffled().prefix(kind.backCount).sorted()
+            let signature = "\(LotteryDraw.encode(front))|\(LotteryDraw.encode(back))"
+            guard signatures.insert(signature).inserted else { continue }
+            entries.append(TicketNumberDraft(frontNumbers: front, backNumbers: back))
+        }
+
+        generatedEntries = entries
     }
 }
