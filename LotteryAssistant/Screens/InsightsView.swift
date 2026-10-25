@@ -4,15 +4,10 @@ import SwiftData
 struct InsightsView: View {
     @Binding var isPresentingTicketEntry: Bool
     @Binding var ticketEntryPrefill: TicketEntryPrefill?
-    @Query(sort: \LotteryDraw.drawDate, order: .reverse) private var draws: [LotteryDraw]
     @Query(sort: \LotteryTicket.purchaseDate, order: .reverse) private var tickets: [LotteryTicket]
     @State private var kind: LotteryKind = .doubleColorBall
     @State private var generatedEntries: [TicketNumberDraft] = []
     @State private var generatedTicketCount = 1
-
-    private var relevantDraws: [LotteryDraw] {
-        draws.filter { $0.kind == kind }
-    }
 
     private var totalCost: Double {
         tickets.reduce(0) { $0 + $1.purchaseCost }
@@ -41,14 +36,13 @@ struct InsightsView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-
                 randomPicker
                 statistics
                 disclaimer
             }
             .padding(AppTheme.Spacing.md)
         }
-        .navigationTitle("选号与统计")
+        .navigationTitle("选号")
         .background(Color(uiColor: .systemGroupedBackground))
         .onChange(of: kind) {
             generatedEntries = []
@@ -141,12 +135,6 @@ struct InsightsView: View {
                     .font(.footnote)
                     .foregroundStyle(AppTheme.Color.secondaryText)
             }
-            Divider()
-            Text("历史开奖样本")
-                .font(.headline)
-            Text("当前已载入 \(relevantDraws.count) 期 \(kind.displayName) 开奖记录。接入经授权的数据源后，此处将展示号码频率、区间分布与遗漏统计。")
-                .font(.subheadline)
-                .foregroundStyle(AppTheme.Color.secondaryText)
         }
         .appCard()
     }

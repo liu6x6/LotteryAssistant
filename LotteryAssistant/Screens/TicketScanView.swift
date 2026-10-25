@@ -106,7 +106,7 @@ struct TicketScanView: View {
                 .foregroundStyle(AppTheme.Color.primary)
             Text("识别彩票号码")
                 .font(.title2.bold())
-            Text("请将票据平码区域拍清楚。识别结果必须由您确认和修改后才会写入彩票。")
+            Text("请将票据平码区域拍清楚。可连续拍摄多张票据，识别结果会合并后供您确认。")
                 .font(.subheadline)
                 .foregroundStyle(AppTheme.Color.secondaryText)
         }
@@ -120,7 +120,7 @@ struct TicketScanView: View {
                     Button {
                         isPresentingCamera = true
                     } label: {
-                        Label("拍摄", systemImage: "camera.fill")
+                        Label(editableEntries.isEmpty ? "拍摄" : "继续拍摄", systemImage: "camera.fill")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(PrimaryButtonStyle())
@@ -251,11 +251,11 @@ struct TicketScanView: View {
     @MainActor
     private func recognizeCameraImage() async {
         guard let cameraImage else { return }
-        await analyze(cameraImage)
+        await analyze(cameraImage, appendingEntries: true)
     }
 
     @MainActor
-    private func analyze(_ image: UIImage) async {
+    private func analyze(_ image: UIImage, appendingEntries: Bool = false) async {
         guard let cgImage = image.cgImage else {
             errorMessage = "图片格式不受支持，请重新拍摄或选择原始照片。"
             return
@@ -269,20 +269,41 @@ struct TicketScanView: View {
         do {
             let lines = try await recognizeLines(in: cgImage, orientation: image.cgImagePropertyOrientation)
             guard !lines.isEmpty else {
-                analysis = nil
+                if !appendingEntries {
+                    analysis = nil
+                }
                 errorMessage = "未识别到文字。请保证号码区域对焦清晰、光线充足且避免反光。"
                 return
             }
             let parsed = TicketOCRParser.analyze(lines: lines, kind: kind)
-            analysis = parsed
-            issueNumber = parsed.issueNumber
-            editableEntries = parsed.entries.enumerated().map { index, entry in
+            let entries = parsed.entries.map {
                 EditableScannedEntry(
-                    sequence: index + 1,
-                    frontNumbersText: numberText(entry.frontNumbers),
-                    backNumbersText: numberText(entry.backNumbers)
+                    sequence: 0,
+                    frontNumbersText: numberText($0.frontNumbers),
+                    backNumbersText: numberText($0.backNumbers)
                 )
             }
+
+            if appendingEntries, !editableEntries.isEmpty {
+                appendUniqueEntries(entries)
+            } else {
+                editableEntries = entries.enumerated().map { index, entry in
+                    EditableScannedEntry(
+                        sequence: index + 1,
+                        frontNumbersText: entry.frontNumbersText,
+                        backNumbersText: entry.backNumbersText
+                    )
+                }
+            }
+
+            let allLines = appendingEntries ? (analysis?.lines ?? []) + lines : lines
+            let resolvedIssueNumber = parsed.issueNumber.isEmpty ? issueNumber : parsed.issueNumber
+            analysis = TicketScanAnalysis(
+                lines: allLines,
+                issueNumber: resolvedIssueNumber,
+                entries: parsed.entries
+            )
+            issueNumber = resolvedIssueNumber
             if editableEntries.isEmpty {
                 editableEntries = [EditableScannedEntry(sequence: 1)]
                 errorMessage = "未能可靠识别完整号码，请手动补全后再应用。"
@@ -290,6 +311,24 @@ struct TicketScanView: View {
         } catch {
             errorMessage = "文字识别失败：\(error.localizedDescription)"
         }
+    }
+
+    private func appendUniqueEntries(_ entries: [EditableScannedEntry]) {
+        var knownEntries = Set(editableEntries.map(entryKey))
+        for entry in entries {
+            guard knownEntries.insert(entryKey(entry)).inserted else { continue }
+            editableEntries.append(
+                EditableScannedEntry(
+                    sequence: editableEntries.count + 1,
+                    frontNumbersText: entry.frontNumbersText,
+                    backNumbersText: entry.backNumbersText
+                )
+            )
+        }
+    }
+
+    private func entryKey(_ entry: EditableScannedEntry) -> String {
+        "\(entry.frontNumbersText)|\(entry.backNumbersText)"
     }
 
     private func recognizeLines(in image: CGImage, orientation: CGImagePropertyOrientation) async throws -> [RecognizedLine] {

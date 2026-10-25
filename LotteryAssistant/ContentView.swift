@@ -28,7 +28,15 @@ struct ContentView: View {
                     ticketEntryPrefill: $ticketEntryPrefill
                 )
             }
-            .tabItem { Label("选号", systemImage: "chart.bar.xaxis") }
+            .tabItem { Label("选号", systemImage: "shuffle") }
+
+            NavigationStack {
+                StatisticsView(
+                    isPresentingTicketEntry: $isPresentingTicketEntry,
+                    ticketEntryPrefill: $ticketEntryPrefill
+                )
+            }
+            .tabItem { Label("统计", systemImage: "chart.bar.xaxis") }
         }
         .tint(AppTheme.Color.primary)
         .sheet(isPresented: $isPresentingTicketEntry) {
