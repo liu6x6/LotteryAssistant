@@ -4,17 +4,22 @@ import SwiftData
 struct InsightsView: View {
     @Binding var isPresentingTicketEntry: Bool
     @Binding var ticketEntryPrefill: TicketEntryPrefill?
+    @AppStorage(SimulationMode.activeGroupIDKey) private var activeSimulationGroupID = ""
     @Query(sort: \LotteryTicket.purchaseDate, order: .reverse) private var tickets: [LotteryTicket]
     @State private var kind: LotteryKind = .doubleColorBall
     @State private var generatedEntries: [TicketNumberDraft] = []
     @State private var generatedTicketCount = 1
 
+    private var realTickets: [LotteryTicket] {
+        tickets.filter { !$0.isSimulation }
+    }
+
     private var totalCost: Double {
-        tickets.reduce(0) { $0 + $1.purchaseCost }
+        realTickets.reduce(0) { $0 + $1.purchaseCost }
     }
 
     private var totalIncome: Double {
-        tickets.reduce(0) { $0 + $1.estimatedPrize }
+        realTickets.reduce(0) { $0 + $1.estimatedPrize }
     }
 
     private var netIncome: Double {
@@ -22,14 +27,23 @@ struct InsightsView: View {
     }
 
     private var hasUnconfirmedPrize: Bool {
-        tickets.contains {
+        realTickets.contains {
             ($0.status == .won || $0.status == .redeemed) && $0.estimatedPrize == 0
         }
+    }
+
+    var isSimulationMode: Bool {
+       !activeSimulationGroupID.isEmpty
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: AppTheme.Spacing.lg) {
+                if isSimulationMode {
+                    Label("模拟模式已开启，新增号码将加入当前模拟组。", systemImage: "wand.and.stars")
+                        .font(.footnote)
+                        .foregroundStyle(AppTheme.Color.accent)
+                }
                 Picker("彩种", selection: $kind) {
                     ForEach(LotteryKind.allCases) { kind in
                         Text(kind.displayName).tag(kind)
@@ -58,7 +72,7 @@ struct InsightsView: View {
                 VStack(alignment: .leading, spacing: AppTheme.Spacing.xxs) {
                     Text("随机选号")
                         .font(.title3.bold())
-                    Text("随机生成 1–5 注 \(kind.displayName) 号码")
+                    Text("\(isSimulationMode ? "随机生成并加入模拟组" : "随机生成") 1–5 注 \(kind.displayName) 号码")
                         .font(.caption)
                         .foregroundStyle(AppTheme.Color.secondaryText)
                 }
@@ -103,7 +117,11 @@ struct InsightsView: View {
                     ticketEntryPrefill = TicketEntryPrefill(kind: kind, entries: generatedEntries)
                     isPresentingTicketEntry = true
                 } label: {
-                    Text("录入这 \(generatedEntries.count) 张彩票")
+                    Text(
+                        isSimulationMode
+                            ? "将这 \(generatedEntries.count) 张彩票加入模拟组"
+                            : "录入这 \(generatedEntries.count) 张彩票"
+                    )
                         .frame(maxWidth: .infinity)
                 }
                 .font(.subheadline.weight(.semibold))
@@ -120,7 +138,7 @@ struct InsightsView: View {
                 columns: Array(repeating: GridItem(.flexible(), spacing: AppTheme.Spacing.sm), count: 2),
                 spacing: AppTheme.Spacing.sm
             ) {
-                MetricCard(title: "已保存", value: "\(tickets.count) 张", symbol: "ticket.fill", tint: AppTheme.Color.primary)
+                MetricCard(title: "已保存", value: "\(realTickets.count) 张", symbol: "ticket.fill", tint: AppTheme.Color.primary)
                 MetricCard(title: "累计投入", value: String(format: "¥%.0f", totalCost), symbol: "creditcard.fill", tint: AppTheme.Color.accent)
                 MetricCard(title: "中奖收入", value: String(format: "¥%.0f", totalIncome), symbol: "yensign.circle.fill", tint: AppTheme.Color.positive)
                 MetricCard(

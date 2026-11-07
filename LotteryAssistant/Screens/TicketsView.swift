@@ -4,8 +4,6 @@ import SwiftData
 struct TicketListView: View {
     @Binding var isPresentingTicketEntry: Bool
     @State private var selectedStatus: TicketStatus?
-    @State private var pageCount = 1
-    @State private var lastRequestedPage: Int?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -13,14 +11,10 @@ struct TicketListView: View {
                 HStack(spacing: AppTheme.Spacing.xs) {
                     TicketStatusFilter(title: "全部", isSelected: selectedStatus == nil) {
                         selectedStatus = nil
-                        pageCount = 1
-                        lastRequestedPage = nil
                     }
                     ForEach(TicketStatus.allCases, id: \.rawValue) { status in
                         TicketStatusFilter(title: status.displayName, isSelected: selectedStatus == status) {
                             selectedStatus = status
-                            pageCount = 1
-                            lastRequestedPage = nil
                         }
                     }
                 }
@@ -29,11 +23,7 @@ struct TicketListView: View {
             }
             .background(.bar)
 
-            TicketPageList(status: selectedStatus, pageCount: pageCount) { page in
-                guard page == pageCount - 1, lastRequestedPage != page else { return }
-                lastRequestedPage = page
-                pageCount += 1
-            }
+            TicketGroupList(status: selectedStatus)
         }
         .navigationTitle("我的彩票")
         .toolbar {
@@ -49,33 +39,11 @@ struct TicketListView: View {
     }
 }
 
-private struct TicketPageList: View {
-    let status: TicketStatus?
-    let pageCount: Int
-    let onLoadMore: (Int) -> Void
-
-    var body: some View {
-        List {
-            ForEach(0..<pageCount, id: \.self) { page in
-                TicketPageRows(
-                    status: status,
-                    page: page,
-                    isLastPage: page == pageCount - 1,
-                    onLoadMore: onLoadMore
-                )
-            }
-        }
-        .listStyle(.plain)
-    }
-}
-
-private struct TicketPageRows: View {
+private struct TicketGroupList: View {
     @Query private var tickets: [LotteryTicket]
-    let page: Int
-    let isLastPage: Bool
-    let onLoadMore: (Int) -> Void
+    @Query(sort: \LotteryDraw.drawDate, order: .reverse) private var draws: [LotteryDraw]
 
-    init(status: TicketStatus?, page: Int, isLastPage: Bool, onLoadMore: @escaping (Int) -> Void) {
+    init(status: TicketStatus?) {
         var descriptor: FetchDescriptor<LotteryTicket>
         if let status {
             let rawValue = status.rawValue
@@ -86,34 +54,93 @@ private struct TicketPageRows: View {
         } else {
             descriptor = FetchDescriptor(sortBy: [SortDescriptor(\.purchaseDate, order: .reverse)])
         }
-        descriptor.fetchLimit = 25
-        descriptor.fetchOffset = page * 25
         _tickets = Query(descriptor, animation: .default)
-        self.page = page
-        self.isLastPage = isLastPage
-        self.onLoadMore = onLoadMore
+    }
+
+    private var displayedTickets: [LotteryTicket] {
+        tickets.filter { !$0.isSimulation }
     }
 
     var body: some View {
-        if page == 0 && tickets.isEmpty {
-            EmptyState(symbol: "ticket", title: "还没有保存的彩票", message: "录入彩票后，开奖时即可自动核验。")
-        } else {
-            ForEach(tickets) { ticket in
-                NavigationLink {
-                    TicketDetailView(ticket: ticket)
-                } label: {
-                    TicketListRow(ticket: ticket)
-                }
-                .onAppear {
-                    guard isLastPage,
-                          ticket.id == tickets.last?.id,
-                          tickets.count == 25 else {
-                        return
+        List {
+            if displayedTickets.isEmpty {
+                EmptyState(symbol: "ticket", title: "还没有保存的彩票", message: "录入彩票后，开奖时即可自动核验。")
+            } else {
+                ForEach(ticketGroups) { group in
+                    Section {
+                        ForEach(group.tickets) { ticket in
+                            NavigationLink {
+                                TicketDetailView(ticket: ticket)
+                            } label: {
+                                TicketListRow(ticket: ticket, matchingDraw: draw(for: ticket))
+                            }
+                        }
+                    } header: {
+                        HStack(spacing: AppTheme.Spacing.xs) {
+                            LotteryKindBadge(kind: group.kind)
+                            Text("第 \(group.issueNumber) 期")
+                                .font(.subheadline.weight(.semibold))
+                            Spacer()
+                            Text("\(group.tickets.count) 张彩票")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(AppTheme.Color.primary)
+                                .padding(.horizontal, AppTheme.Spacing.xs)
+                                .padding(.vertical, AppTheme.Spacing.xxs)
+                                .background(AppTheme.Color.primary.opacity(0.12), in: Capsule())
+                        }
+                        .padding(.horizontal, AppTheme.Spacing.sm)
+                        .padding(.vertical, AppTheme.Spacing.xs)
+                        .background(
+                            AppTheme.Color.primary.opacity(0.1),
+                            in: RoundedRectangle(cornerRadius: AppTheme.Radius.small)
+                        )
+                        .textCase(nil)
                     }
-                    onLoadMore(page)
                 }
             }
         }
+        .listStyle(.plain)
+    }
+
+    private var ticketGroups: [TicketIssueGroup] {
+        let groupedTickets = Dictionary(grouping: displayedTickets) { ticket in
+            "\(ticket.kind.rawValue)-\(LotteryIssue.normalize(ticket.issueNumber, for: ticket.kind))"
+        }
+
+
+        return groupedTickets.values
+            .map { TicketIssueGroup(tickets: $0) }
+            .sorted { lhs, rhs in
+                (lhs.tickets.first?.purchaseDate ?? .distantPast)
+                    > (rhs.tickets.first?.purchaseDate ?? .distantPast)
+            }
+    }
+
+    private func draw(for ticket: LotteryTicket) -> LotteryDraw? {
+        let issue = LotteryIssue.normalize(ticket.issueNumber, for: ticket.kind)
+        return draws.first {
+            $0.kind == ticket.kind
+                && LotteryIssue.normalize($0.issueNumber, for: $0.kind) == issue
+        }
+    }
+}
+
+private struct TicketIssueGroup: Identifiable {
+    let kind: LotteryKind
+    let issueNumber: String
+    let tickets: [LotteryTicket]
+
+    var id: String {
+        "\(kind.rawValue)-\(LotteryIssue.normalize(issueNumber, for: kind))"
+    }
+
+    init(tickets: [LotteryTicket]) {
+        guard let firstTicket = tickets.first else {
+            preconditionFailure("A ticket issue group must contain at least one ticket.")
+        }
+        self.kind = firstTicket.kind
+        self.issueNumber = firstTicket.issueNumber
+        self.tickets = tickets
     }
 }
 
@@ -137,19 +164,32 @@ private struct TicketStatusFilter: View {
 
 struct TicketListRow: View {
     let ticket: LotteryTicket
+    let matchingDraw: LotteryDraw?
+
+    private var matchedFrontNumbers: Set<Int> {
+        guard let matchingDraw else { return [] }
+        return Set(ticket.frontNumbers).intersection(matchingDraw.frontNumbers)
+    }
+
+    private var matchedBackNumbers: Set<Int> {
+        guard let matchingDraw else { return [] }
+        return Set(ticket.backNumbers).intersection(matchingDraw.backNumbers)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppTheme.Spacing.xs) {
             HStack {
-                LotteryKindBadge(kind: ticket.kind)
-                Text("第 \(ticket.issueNumber) 期")
-                    .font(.subheadline.weight(.semibold))
                 Spacer()
                 Text(ticket.status.displayName)
                     .font(.caption.weight(.bold))
                     .foregroundStyle(ticket.status.tint)
             }
-            NumberRow(frontNumbers: ticket.frontNumbers, backNumbers: ticket.backNumbers)
+            NumberRow(
+                frontNumbers: ticket.frontNumbers,
+                backNumbers: ticket.backNumbers,
+                matchedFrontNumbers: matchedFrontNumbers,
+                matchedBackNumbers: matchedBackNumbers
+            )
             Text("购买于 \(ticket.purchaseDate.formatted(date: .abbreviated, time: .omitted)) · \(ticket.multiplier) 倍")
                 .font(.caption)
                 .foregroundStyle(AppTheme.Color.secondaryText)

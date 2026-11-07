@@ -4,9 +4,19 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage(LotteryRuleSettings.isDoubleColorBallFortunePrizeEnabled)
     private var isDoubleColorBallFortunePrizeEnabled = false
+    @AppStorage(AppAppearance.storageKey)
+    private var appearanceRawValue = AppAppearance.system.rawValue
 
     var body: some View {
         Form {
+            Section("外观") {
+                Picker("显示模式", selection: $appearanceRawValue) {
+                    ForEach(AppAppearance.allCases) { appearance in
+                        Text(appearance.title).tag(appearance.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
             Section("中奖规则") {
                 Toggle("启用双色球福运奖", isOn: $isDoubleColorBallFortunePrizeEnabled)
                 Text("启用后，双色球恰好命中 3 个红球且未命中蓝球的单注按福运奖计 ¥5。该设置仅在后续首次核验的新票据结果中生效，已核验的历史结果不会改变。")

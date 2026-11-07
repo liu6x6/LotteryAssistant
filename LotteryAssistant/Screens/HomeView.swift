@@ -6,12 +6,16 @@ struct HomeView: View {
     @Query(sort: \LotteryDraw.drawDate, order: .reverse) private var draws: [LotteryDraw]
     @Query(sort: \LotteryTicket.purchaseDate, order: .reverse) private var tickets: [LotteryTicket]
 
+    private var realTickets: [LotteryTicket] {
+        tickets.filter { !$0.isSimulation }
+    }
+
     private var pendingTickets: [LotteryTicket] {
-        tickets.filter { $0.status == .pendingDraw }
+        realTickets.filter { $0.status == .pendingDraw }
     }
 
     private var wonTickets: [LotteryTicket] {
-        tickets.filter { $0.status == .won || $0.status == .redeemed }
+        realTickets.filter { $0.status == .won || $0.status == .redeemed }
     }
 
     var body: some View {
@@ -61,7 +65,7 @@ struct HomeView: View {
         HStack(spacing: AppTheme.Spacing.sm) {
             MetricCard(title: "待开奖", value: "\(pendingTickets.count)", symbol: "clock.fill", tint: .orange)
             MetricCard(title: "已中奖", value: "\(wonTickets.count)", symbol: "star.fill", tint: AppTheme.Color.positive)
-            MetricCard(title: "累计投入", value: "¥\(tickets.reduce(0) { $0 + Int($1.purchaseCost) })", symbol: "chart.line.uptrend.xyaxis", tint: AppTheme.Color.primary)
+            MetricCard(title: "累计投入", value: "¥\(realTickets.reduce(0) { $0 + Int($1.purchaseCost) })", symbol: "chart.line.uptrend.xyaxis", tint: AppTheme.Color.primary)
         }
     }
 
@@ -104,7 +108,7 @@ struct HomeView: View {
                 .font(.subheadline.weight(.semibold))
             }
 
-            if let ticket = tickets.first {
+            if let ticket = realTickets.first {
                 NavigationLink {
                     TicketDetailView(ticket: ticket)
                 } label: {

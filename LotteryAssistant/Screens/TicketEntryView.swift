@@ -11,8 +11,11 @@ struct TicketEntryView: View {
     @Environment(\.modelContext) private var modelContext
     @AppStorage(LotteryRuleSettings.isDoubleColorBallFortunePrizeEnabled)
     private var isDoubleColorBallFortunePrizeEnabled = false
+    @AppStorage(SimulationMode.activeGroupIDKey)
+    private var activeSimulationGroupID = ""
     @Query(sort: \LotteryDraw.drawDate, order: .reverse) private var draws: [LotteryDraw]
     @Query private var existingTickets: [LotteryTicket]
+    @Query private var simulationGroups: [SimulationGroup]
 
     private let ticket: LotteryTicket?
     private let prefill: TicketEntryPrefill?
@@ -44,9 +47,21 @@ struct TicketEntryView: View {
         draws.first(where: { $0.kind == kind })?.issueNumber ?? ""
     }
 
+    private var targetSimulationGroup: SimulationGroup? {
+        if let ticket {
+            return ticket.simulationGroup
+        }
+        guard let groupID = UUID(uuidString: activeSimulationGroupID) else { return nil }
+        return simulationGroups.first { $0.id == groupID }
+    }
+
     var body: some View {
         Form {
             Section("彩票信息") {
+                if let targetSimulationGroup {
+                    LabeledContent("模拟组", value: targetSimulationGroup.name)
+                }
+
                 Picker("彩种", selection: $kind) {
                     ForEach(LotteryKind.allCases) { kind in
                         Text(kind.displayName).tag(kind)
@@ -129,7 +144,7 @@ struct TicketEntryView: View {
                 }
             }
         }
-        .navigationTitle(ticket == nil ? "录入彩票" : "修改彩票")
+        .navigationTitle(ticket == nil ? (targetSimulationGroup == nil ? "录入彩票" : "录入模拟彩票") : "修改彩票")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
@@ -196,7 +211,8 @@ struct TicketEntryView: View {
                 issueNumber: normalizedIssue,
                 entry: primaryEntry,
                 multiplier: multiplier,
-                isAdditional: usesAdditional
+                isAdditional: usesAdditional,
+                simulationGroupID: targetSimulationGroup?.id
             )
             guard !existingTickets.contains(where: {
                 $0.id != ticket.id && TicketSignature(ticket: $0) == editedSignature
@@ -220,7 +236,10 @@ struct TicketEntryView: View {
             applyResultIfAvailable(to: ticket, issueNumber: normalizedIssue)
         } else {
             let entries = [primaryEntry] + additionalScannedEntries
-            var knownSignatures = Set(existingTickets.map(TicketSignature.init(ticket:)))
+            var knownSignatures = Set<TicketSignature>()
+            for existingTicket in existingTickets {
+                knownSignatures.insert(TicketSignature(ticket: existingTicket))
+            }
             var uniqueEntries: [TicketNumberDraft] = []
 
             for entry in entries {
@@ -229,7 +248,8 @@ struct TicketEntryView: View {
                     issueNumber: normalizedIssue,
                     entry: entry,
                     multiplier: multiplier,
-                    isAdditional: usesAdditional
+                    isAdditional: usesAdditional,
+                    simulationGroupID: targetSimulationGroup?.id
                 )
                 if knownSignatures.insert(signature).inserted {
                     uniqueEntries.append(entry)
@@ -250,6 +270,7 @@ struct TicketEntryView: View {
                     multiplier: multiplier,
                     isAdditional: usesAdditional
                 )
+                newTicket.simulationGroup = targetSimulationGroup
                 applyResultIfAvailable(to: newTicket, issueNumber: normalizedIssue)
                 modelContext.insert(newTicket)
             }
@@ -289,13 +310,15 @@ private struct TicketSignature: Hashable {
     let backNumbersRaw: String
     let multiplier: Int
     let isAdditional: Bool
+    let simulationGroupID: UUID?
 
     init(
         kind: LotteryKind,
         issueNumber: String,
         entry: TicketNumberDraft,
         multiplier: Int,
-        isAdditional: Bool
+        isAdditional: Bool,
+        simulationGroupID: UUID?
     ) {
         self.lotteryRawValue = kind.rawValue
         self.issueNumber = LotteryIssue.normalize(issueNumber, for: kind)
@@ -303,6 +326,7 @@ private struct TicketSignature: Hashable {
         self.backNumbersRaw = LotteryDraw.encode(entry.backNumbers)
         self.multiplier = multiplier
         self.isAdditional = isAdditional
+        self.simulationGroupID = simulationGroupID
     }
 
     init(ticket: LotteryTicket) {
@@ -314,7 +338,8 @@ private struct TicketSignature: Hashable {
                 backNumbers: ticket.backNumbers
             ),
             multiplier: ticket.multiplier,
-            isAdditional: ticket.isAdditional
+            isAdditional: ticket.isAdditional,
+            simulationGroupID: ticket.simulationGroup?.id
         )
     }
 }

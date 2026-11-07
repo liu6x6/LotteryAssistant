@@ -13,11 +13,6 @@ struct ContentView: View {
             .tabItem { Label("首页", systemImage: "house.fill") }
 
             NavigationStack {
-                DrawListView()
-            }
-            .tabItem { Label("开奖", systemImage: "calendar") }
-
-            NavigationStack {
                 TicketListView(isPresentingTicketEntry: $isPresentingTicketEntry)
             }
             .tabItem { Label("彩票", systemImage: "ticket.fill") }
@@ -37,6 +32,11 @@ struct ContentView: View {
                 )
             }
             .tabItem { Label("统计", systemImage: "chart.bar.xaxis") }
+
+            NavigationStack {
+                SimulationGroupsView()
+            }
+            .tabItem { Label("模拟", systemImage: "wand.and.stars") }
         }
         .tint(AppTheme.Color.primary)
         .sheet(isPresented: $isPresentingTicketEntry) {
@@ -54,5 +54,5 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
-        .modelContainer(for: [LotteryDraw.self, LotteryTicket.self], inMemory: true)
+        .modelContainer(for: [LotteryDraw.self, LotteryTicket.self, SimulationGroup.self], inMemory: true)
 }

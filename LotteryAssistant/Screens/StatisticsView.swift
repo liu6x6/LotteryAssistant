@@ -5,8 +5,14 @@ import SwiftUI
 struct StatisticsView: View {
     @Binding var isPresentingTicketEntry: Bool
     @Binding var ticketEntryPrefill: TicketEntryPrefill?
+    @AppStorage(SimulationMode.activeGroupIDKey) private var activeSimulationGroupID = ""
     @State private var kind: LotteryKind = .doubleColorBall
-    @State private var period: LuckyNumberPeriod = .oneMonth
+    @State private var periodUnit: LuckyNumberPeriod.Unit = .month
+    @State private var periodValue = 1
+
+    private var period: LuckyNumberPeriod {
+        LuckyNumberPeriod(unit: periodUnit, value: periodValue)
+    }
 
     var body: some View {
         ScrollView {
@@ -18,14 +24,13 @@ struct StatisticsView: View {
                 }
                 .pickerStyle(.segmented)
 
-                Picker("统计周期", selection: $period) {
-                    ForEach(LuckyNumberPeriod.allCases) { period in
-                        Text(period.title).tag(period)
-                    }
-                }
-                .pickerStyle(.segmented)
+                LuckyNumberPeriodPicker(unit: $periodUnit, value: $periodValue)
 
-                LuckyNumberStatistics(kind: kind, period: period) { entry in
+                LuckyNumberStatistics(
+                    kind: kind,
+                    period: period,
+                    isSimulationMode: !activeSimulationGroupID.isEmpty
+                ) { entry in
                     ticketEntryPrefill = TicketEntryPrefill(kind: kind, entries: [entry])
                     isPresentingTicketEntry = true
                 }
@@ -38,59 +43,321 @@ struct StatisticsView: View {
         }
         .navigationTitle("幸运数字统计")
         .background(Color(uiColor: .systemGroupedBackground))
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink {
+                    PositionNumberDistributionView()
+                } label: {
+                    Image(systemName: "chart.xyaxis.line")
+                }
+                .accessibilityLabel("查看各位置号码分布")
+            }
+        }
     }
 }
 
-private enum LuckyNumberPeriod: String, CaseIterable, Identifiable {
-    case oneMonth
-    case threeMonths
-    case sixMonths
-    case oneYear
-    case twoYears
-    case threeYears
+private struct LuckyNumberPeriod: Hashable {
+    enum Unit: String, CaseIterable, Identifiable {
+        case month
+        case year
 
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .oneMonth: "1个月"
-        case .threeMonths: "3个月"
-        case .sixMonths: "6个月"
-        case .oneYear: "1年"
-        case .twoYears: "2年"
-        case .threeYears: "3年"
-        }
+        var id: String { rawValue }
+        var title: String { self == .month ? "月" : "年" }
+        var maximumValue: Int { self == .month ? 11 : 3 }
     }
+
+    let unit: Unit
+    let value: Int
+
+    var title: String { "\(value)\(unit.title)" }
 
     var startDate: Date {
-        let date: Date?
-        switch self {
-        case .oneMonth:
-            date = Calendar.current.date(byAdding: .month, value: -1, to: .now)
-        case .threeMonths:
-            date = Calendar.current.date(byAdding: .month, value: -3, to: .now)
-        case .sixMonths:
-            date = Calendar.current.date(byAdding: .month, value: -6, to: .now)
-        case .oneYear:
-            date = Calendar.current.date(byAdding: .year, value: -1, to: .now)
-        case .twoYears:
-            date = Calendar.current.date(byAdding: .year, value: -2, to: .now)
-        case .threeYears:
-            date = Calendar.current.date(byAdding: .year, value: -3, to: .now)
-        }
-        return date ?? .now
+        let component: Calendar.Component = unit == .month ? .month : .year
+        return Calendar.current.date(byAdding: component, value: -value, to: .now) ?? .now
     }
+}
+
+private struct LuckyNumberPeriodPicker: View {
+    @Binding var unit: LuckyNumberPeriod.Unit
+    @Binding var value: Int
+
+    var body: some View {
+        HStack {
+            Picker("单位", selection: $unit) {
+                ForEach(LuckyNumberPeriod.Unit.allCases) { unit in
+                    Text(unit.title).tag(unit)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            Picker("统计周期", selection: $value) {
+                ForEach(1...unit.maximumValue, id: \.self) { value in
+                    Text("\(value)\(unit.title)").tag(value)
+                }
+            }
+            .pickerStyle(.menu)
+        }
+        .onChange(of: unit) {
+            value = min(value, unit.maximumValue)
+        }
+    }
+}
+
+private struct PositionNumberDistributionView: View {
+    @State private var kind: LotteryKind = .doubleColorBall
+    @State private var periodUnit: LuckyNumberPeriod.Unit = .month
+    @State private var periodValue = 1
+
+    private var period: LuckyNumberPeriod {
+        LuckyNumberPeriod(unit: periodUnit, value: periodValue)
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: AppTheme.Spacing.lg) {
+                Picker("彩种", selection: $kind) {
+                    ForEach(LotteryKind.allCases) { kind in
+                        Text(kind.displayName).tag(kind)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                LuckyNumberPeriodPicker(unit: $periodUnit, value: $periodValue)
+
+                PositionNumberDistribution(kind: kind, period: period)
+
+                Label("曲线反映各号码在对应位置的历史出现频次，不代表未来开奖结果。", systemImage: "info.circle")
+                    .font(.footnote)
+                    .foregroundStyle(AppTheme.Color.secondaryText)
+            }
+            .padding(AppTheme.Spacing.md)
+        }
+        .navigationTitle("各位置号码分布")
+        .navigationBarTitleDisplayMode(.inline)
+        .background(Color(uiColor: .systemGroupedBackground))
+    }
+}
+
+private struct PositionNumberDistribution: View {
+    @Query private var draws: [LotteryDraw]
+    let kind: LotteryKind
+    let period: LuckyNumberPeriod
+
+    init(kind: LotteryKind, period: LuckyNumberPeriod) {
+        let lotteryRawValue = kind.rawValue
+        let startDate = period.startDate
+        _draws = Query(
+            filter: #Predicate {
+                $0.lotteryRawValue == lotteryRawValue && $0.drawDate >= startDate
+            },
+            sort: \LotteryDraw.drawDate,
+            order: .reverse
+        )
+        self.kind = kind
+        self.period = period
+    }
+
+    private var sections: [PositionDistributionSection] {
+        let frontTitle = kind == .doubleColorBall ? "红球" : "前区"
+        let backTitle = kind == .doubleColorBall ? "蓝球" : "后区"
+
+        return (0..<kind.frontCount).map { index in
+            PositionDistributionSection(
+                title: "\(frontTitle)第 \(index + 1) 位",
+                range: kind.frontRange,
+                values: draws.compactMap { draw in
+                    draw.frontNumbers.indices.contains(index) ? draw.frontNumbers[index] : nil
+                },
+                color: AppTheme.Color.redBall
+            )
+        } + (0..<kind.backCount).map { index in
+            PositionDistributionSection(
+                title: "\(backTitle)第 \(index + 1) 位",
+                range: kind.backRange,
+                values: draws.compactMap { draw in
+                    draw.backNumbers.indices.contains(index) ? draw.backNumbers[index] : nil
+                },
+                color: AppTheme.Color.blueBall
+            )
+        }
+    }
+
+    var body: some View {
+        if draws.isEmpty {
+            ContentUnavailableView(
+                "暂无统计数据",
+                systemImage: "chart.xyaxis.line",
+                description: Text("所选周期内暂无 \(kind.displayName) 开奖数据。")
+            )
+            .appCard()
+        } else {
+            VStack(alignment: .leading, spacing: AppTheme.Spacing.lg) {
+                Text("共统计 \(draws.count) 期 \(period.title) 内开奖记录")
+                    .font(.footnote)
+                    .foregroundStyle(AppTheme.Color.secondaryText)
+
+                ForEach(sections) { section in
+                    positionChart(section)
+                }
+            }
+        }
+    }
+
+    private func positionChart(_ section: PositionDistributionSection) -> some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.xs) {
+            Text(section.title)
+                .font(.headline)
+            Text("历史频次")
+                .font(.caption)
+                .foregroundStyle(AppTheme.Color.secondaryText)
+            Chart(section.observedFrequencies) { frequency in
+                AreaMark(
+                    x: .value("号码", frequency.number),
+                    y: .value("出现次数", frequency.count)
+                )
+                .foregroundStyle(section.color.opacity(0.18))
+
+                LineMark(
+                    x: .value("号码", frequency.number),
+                    y: .value("出现次数", frequency.count)
+                )
+                .foregroundStyle(section.color)
+                .lineStyle(StrokeStyle(lineWidth: 2))
+
+                PointMark(
+                    x: .value("号码", frequency.number),
+                    y: .value("出现次数", frequency.count)
+                )
+                .foregroundStyle(section.color)
+            }
+            .chartXAxis {
+                AxisMarks(values: section.observedNumbers) { value in
+                    AxisGridLine()
+                    AxisTick()
+                    AxisValueLabel {
+                        if let number = value.as(Int.self) {
+                            Text(String(format: "%02d", number))
+                        }
+                    }
+                }
+            }
+            .chartXScale(domain: section.xScaleDomain)
+            .chartScrollableAxes(.horizontal)
+            .chartXVisibleDomain(length: 8)
+            .frame(height: 180)
+
+            Divider()
+
+            Text("正态分布拟合 · 均值 \(section.mean.formatted(.number.precision(.fractionLength(1))))")
+                .font(.caption)
+                .foregroundStyle(AppTheme.Color.secondaryText)
+            Chart(section.normalDistribution) { point in
+                AreaMark(
+                    x: .value("号码", point.number),
+                    y: .value("相对密度", point.density)
+                )
+                .foregroundStyle(section.color.opacity(0.25))
+
+                LineMark(
+                    x: .value("号码", point.number),
+                    y: .value("相对密度", point.density)
+                )
+                .foregroundStyle(section.color)
+                .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                .interpolationMethod(.catmullRom)
+            }
+            .chartXAxis {
+                AxisMarks(values: section.observedNumbers) { value in
+                    AxisGridLine()
+                    AxisTick()
+                    AxisValueLabel {
+                        if let number = value.as(Int.self) {
+                            Text(String(format: "%02d", number))
+                        }
+                    }
+                }
+            }
+            .chartXScale(domain: section.xScaleDomain)
+            .chartScrollableAxes(.horizontal)
+            .chartXVisibleDomain(length: 8)
+            .chartYScale(domain: 0...1)
+            .frame(height: 180)
+        }
+        .appCard()
+    }
+}
+
+private struct PositionDistributionSection: Identifiable {
+    let title: String
+    let range: ClosedRange<Int>
+    let values: [Int]
+    let color: Color
+
+    var id: String { title }
+
+    var frequencies: [LuckyNumberFrequency] {
+        range.map { number in
+            LuckyNumberFrequency(number: number, count: values.filter { $0 == number }.count)
+        }
+    }
+
+    var observedFrequencies: [LuckyNumberFrequency] {
+        frequencies.filter { $0.count > 0 }
+    }
+
+    var observedNumbers: [Int] {
+        observedFrequencies.map(\.number)
+    }
+
+    var xScaleDomain: ClosedRange<Int> {
+        guard let minimum = observedNumbers.min(), let maximum = observedNumbers.max() else {
+            return range
+        }
+
+        let lowerBound = max(range.lowerBound, minimum - 1)
+        let upperBound = min(range.upperBound, maximum + 1)
+        return lowerBound == upperBound ? lowerBound...(upperBound + 1) : lowerBound...upperBound
+    }
+
+    var mean: Double {
+        guard !values.isEmpty else { return 0 }
+        return values.map(Double.init).reduce(0, +) / Double(values.count)
+    }
+
+    var normalDistribution: [NormalDistributionPoint] {
+        let variance = values
+            .map { pow(Double($0) - mean, 2) }
+            .reduce(0, +) / Double(max(values.count, 1))
+        let standardDeviation = max(sqrt(variance), 0.5)
+
+        return observedNumbers.map { number in
+            let normalizedDistance = (Double(number) - mean) / standardDeviation
+            return NormalDistributionPoint(
+                number: number,
+                density: exp(-0.5 * normalizedDistance * normalizedDistance)
+            )
+        }
+    }
+}
+
+private struct NormalDistributionPoint: Identifiable {
+    let number: Int
+    let density: Double
+
+    var id: Int { number }
 }
 
 private struct LuckyNumberStatistics: View {
     @Query private var draws: [LotteryDraw]
     let kind: LotteryKind
     let period: LuckyNumberPeriod
+    let isSimulationMode: Bool
     let onUseRecommendation: (TicketNumberDraft) -> Void
 
     init(
         kind: LotteryKind,
         period: LuckyNumberPeriod,
+        isSimulationMode: Bool,
         onUseRecommendation: @escaping (TicketNumberDraft) -> Void
     ) {
         let lotteryRawValue = kind.rawValue
@@ -104,6 +371,7 @@ private struct LuckyNumberStatistics: View {
         )
         self.kind = kind
         self.period = period
+        self.isSimulationMode = isSimulationMode
         self.onUseRecommendation = onUseRecommendation
     }
 
@@ -218,7 +486,7 @@ private struct LuckyNumberStatistics: View {
             Button {
                 onUseRecommendation(entry)
             } label: {
-                Label("录入推荐彩票", systemImage: "ticket.fill")
+                Label(isSimulationMode ? "加入模拟组" : "录入推荐彩票", systemImage: "ticket.fill")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(PrimaryButtonStyle())
