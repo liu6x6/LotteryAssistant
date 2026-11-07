@@ -34,7 +34,7 @@ struct ContentView: View {
             .tabItem { Label("统计", systemImage: "chart.bar.xaxis") }
 
             NavigationStack {
-                SimulationGroupsView()
+                SimulationTicketsView()
             }
             .tabItem { Label("模拟", systemImage: "wand.and.stars") }
         }

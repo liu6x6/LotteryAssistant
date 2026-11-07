@@ -5,7 +5,6 @@ import SwiftUI
 struct StatisticsView: View {
     @Binding var isPresentingTicketEntry: Bool
     @Binding var ticketEntryPrefill: TicketEntryPrefill?
-    @AppStorage(SimulationMode.activeGroupIDKey) private var activeSimulationGroupID = ""
     @State private var kind: LotteryKind = .doubleColorBall
     @State private var periodUnit: LuckyNumberPeriod.Unit = .month
     @State private var periodValue = 1
@@ -28,8 +27,7 @@ struct StatisticsView: View {
 
                 LuckyNumberStatistics(
                     kind: kind,
-                    period: period,
-                    isSimulationMode: !activeSimulationGroupID.isEmpty
+                    period: period
                 ) { entry in
                     ticketEntryPrefill = TicketEntryPrefill(kind: kind, entries: [entry])
                     isPresentingTicketEntry = true
@@ -351,13 +349,11 @@ private struct LuckyNumberStatistics: View {
     @Query private var draws: [LotteryDraw]
     let kind: LotteryKind
     let period: LuckyNumberPeriod
-    let isSimulationMode: Bool
     let onUseRecommendation: (TicketNumberDraft) -> Void
 
     init(
         kind: LotteryKind,
         period: LuckyNumberPeriod,
-        isSimulationMode: Bool,
         onUseRecommendation: @escaping (TicketNumberDraft) -> Void
     ) {
         let lotteryRawValue = kind.rawValue
@@ -371,7 +367,6 @@ private struct LuckyNumberStatistics: View {
         )
         self.kind = kind
         self.period = period
-        self.isSimulationMode = isSimulationMode
         self.onUseRecommendation = onUseRecommendation
     }
 
@@ -486,7 +481,7 @@ private struct LuckyNumberStatistics: View {
             Button {
                 onUseRecommendation(entry)
             } label: {
-                Label(isSimulationMode ? "加入模拟组" : "录入推荐彩票", systemImage: "ticket.fill")
+                Label("录入推荐彩票", systemImage: "ticket.fill")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(PrimaryButtonStyle())

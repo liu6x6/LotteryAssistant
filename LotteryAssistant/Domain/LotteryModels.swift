@@ -75,10 +75,6 @@ enum TicketStatus: String, Codable, CaseIterable {
     }
 }
 
-enum SimulationMode {
-    static let activeGroupIDKey = "activeSimulationGroupID"
-}
-
 @Model
 final class SimulationGroup {
     @Attribute(.unique) var id: UUID
@@ -178,9 +174,18 @@ final class LotteryTicket {
     var matchedBackCount: Int
     var prizeLevel: String?
     var estimatedPrize: Double
+    var isSimulation: Bool?
     var simulationGroup: SimulationGroup?
 
-    init(kind: LotteryKind, issueNumber: String, frontNumbers: [Int], backNumbers: [Int], multiplier: Int = 1, isAdditional: Bool = false) {
+    init(
+        kind: LotteryKind,
+        issueNumber: String,
+        frontNumbers: [Int],
+        backNumbers: [Int],
+        multiplier: Int = 1,
+        isAdditional: Bool = false,
+        isSimulation: Bool = false
+    ) {
         self.id = UUID()
         self.lotteryRawValue = kind.rawValue
         self.issueNumber = issueNumber
@@ -193,6 +198,7 @@ final class LotteryTicket {
         self.matchedFrontCount = 0
         self.matchedBackCount = 0
         self.estimatedPrize = 0
+        self.isSimulation = isSimulation
     }
 
     var kind: LotteryKind { LotteryKind(rawValue: lotteryRawValue) ?? .doubleColorBall }
@@ -200,5 +206,5 @@ final class LotteryTicket {
     var backNumbers: [Int] { LotteryDraw.decode(backNumbersRaw) }
     var status: TicketStatus { TicketStatus(rawValue: statusRawValue) ?? .pendingDraw }
     var purchaseCost: Double { Double(multiplier * (isAdditional ? 3 : 2)) }
-    var isSimulation: Bool { simulationGroup != nil }
+    var isSimulated: Bool { isSimulation ?? (simulationGroup != nil) }
 }

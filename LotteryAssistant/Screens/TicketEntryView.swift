@@ -11,11 +11,9 @@ struct TicketEntryView: View {
     @Environment(\.modelContext) private var modelContext
     @AppStorage(LotteryRuleSettings.isDoubleColorBallFortunePrizeEnabled)
     private var isDoubleColorBallFortunePrizeEnabled = false
-    @AppStorage(SimulationMode.activeGroupIDKey)
-    private var activeSimulationGroupID = ""
     @Query(sort: \LotteryDraw.drawDate, order: .reverse) private var draws: [LotteryDraw]
     @Query private var existingTickets: [LotteryTicket]
-    @Query private var simulationGroups: [SimulationGroup]
+    @Query(sort: \SimulationGroup.createdAt, order: .reverse) private var simulationGroups: [SimulationGroup]
 
     private let ticket: LotteryTicket?
     private let prefill: TicketEntryPrefill?
@@ -26,11 +24,18 @@ struct TicketEntryView: View {
     @State private var backNumbers: Set<Int>
     @State private var multiplier: Int
     @State private var isAdditional: Bool
+    @State private var isSimulation: Bool
+    @State private var simulationGroupID: UUID?
     @State private var validationMessage: String?
     @State private var isPresentingScanner = false
     @State private var additionalScannedEntries: [TicketNumberDraft] = []
 
-    init(ticket: LotteryTicket? = nil, prefill: TicketEntryPrefill? = nil) {
+    init(
+        ticket: LotteryTicket? = nil,
+        prefill: TicketEntryPrefill? = nil,
+        isSimulation: Bool = false,
+        simulationGroup: SimulationGroup? = nil
+    ) {
         self.ticket = ticket
         self.prefill = prefill
         let initialEntry = prefill?.entries.first
@@ -40,6 +45,8 @@ struct TicketEntryView: View {
         _backNumbers = State(initialValue: Set(ticket?.backNumbers ?? initialEntry?.backNumbers ?? []))
         _multiplier = State(initialValue: ticket?.multiplier ?? 1)
         _isAdditional = State(initialValue: ticket?.isAdditional ?? false)
+        _isSimulation = State(initialValue: ticket?.isSimulated ?? isSimulation || simulationGroup != nil)
+        _simulationGroupID = State(initialValue: ticket?.simulationGroup?.id ?? simulationGroup?.id)
         _additionalScannedEntries = State(initialValue: ticket == nil ? Array(prefill?.entries.dropFirst() ?? []) : [])
     }
 
@@ -47,21 +54,9 @@ struct TicketEntryView: View {
         draws.first(where: { $0.kind == kind })?.issueNumber ?? ""
     }
 
-    private var targetSimulationGroup: SimulationGroup? {
-        if let ticket {
-            return ticket.simulationGroup
-        }
-        guard let groupID = UUID(uuidString: activeSimulationGroupID) else { return nil }
-        return simulationGroups.first { $0.id == groupID }
-    }
-
     var body: some View {
         Form {
             Section("彩票信息") {
-                if let targetSimulationGroup {
-                    LabeledContent("模拟组", value: targetSimulationGroup.name)
-                }
-
                 Picker("彩种", selection: $kind) {
                     ForEach(LotteryKind.allCases) { kind in
                         Text(kind.displayName).tag(kind)
@@ -79,6 +74,23 @@ struct TicketEntryView: View {
 
                 if kind == .superLotto {
                     Toggle("追加投注", isOn: $isAdditional)
+                }
+
+                Toggle("模拟彩票", isOn: $isSimulation)
+
+                if isSimulation {
+                    if simulationGroups.isEmpty {
+                        Text("请先在模拟页创建模拟组。")
+                            .font(.footnote)
+                            .foregroundStyle(AppTheme.Color.error)
+                    } else {
+                        Picker("模拟组", selection: $simulationGroupID) {
+                            Text("请选择").tag(UUID?.none)
+                            ForEach(simulationGroups) { group in
+                                Text(group.name).tag(Optional(group.id))
+                            }
+                        }
+                    }
                 }
             }
 
@@ -144,7 +156,7 @@ struct TicketEntryView: View {
                 }
             }
         }
-        .navigationTitle(ticket == nil ? (targetSimulationGroup == nil ? "录入彩票" : "录入模拟彩票") : "修改彩票")
+        .navigationTitle(ticket == nil ? (isSimulation ? "录入模拟彩票" : "录入彩票") : "修改彩票")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
@@ -197,6 +209,13 @@ struct TicketEntryView: View {
             validationMessage = "请准确选择 \(kind.backCount) 个后区号码。"
             return
         }
+        let selectedSimulationGroup = isSimulation
+            ? simulationGroups.first { $0.id == simulationGroupID }
+            : nil
+        guard !isSimulation || selectedSimulationGroup != nil else {
+            validationMessage = "请选择模拟组。"
+            return
+        }
 
         let normalizedIssue = LotteryIssue.normalize(trimmedIssue, for: kind)
         let primaryEntry = TicketNumberDraft(
@@ -212,7 +231,8 @@ struct TicketEntryView: View {
                 entry: primaryEntry,
                 multiplier: multiplier,
                 isAdditional: usesAdditional,
-                simulationGroupID: targetSimulationGroup?.id
+                isSimulation: isSimulation,
+                simulationGroupID: selectedSimulationGroup?.id
             )
             guard !existingTickets.contains(where: {
                 $0.id != ticket.id && TicketSignature(ticket: $0) == editedSignature
@@ -233,6 +253,8 @@ struct TicketEntryView: View {
             ticket.matchedBackCount = 0
             ticket.prizeLevel = nil
             ticket.estimatedPrize = 0
+            ticket.isSimulation = isSimulation
+            ticket.simulationGroup = selectedSimulationGroup
             applyResultIfAvailable(to: ticket, issueNumber: normalizedIssue)
         } else {
             let entries = [primaryEntry] + additionalScannedEntries
@@ -249,7 +271,8 @@ struct TicketEntryView: View {
                     entry: entry,
                     multiplier: multiplier,
                     isAdditional: usesAdditional,
-                    simulationGroupID: targetSimulationGroup?.id
+                    isSimulation: isSimulation,
+                    simulationGroupID: selectedSimulationGroup?.id
                 )
                 if knownSignatures.insert(signature).inserted {
                     uniqueEntries.append(entry)
@@ -268,9 +291,10 @@ struct TicketEntryView: View {
                     frontNumbers: entry.frontNumbers,
                     backNumbers: entry.backNumbers,
                     multiplier: multiplier,
-                    isAdditional: usesAdditional
+                    isAdditional: usesAdditional,
+                    isSimulation: isSimulation
                 )
-                newTicket.simulationGroup = targetSimulationGroup
+                newTicket.simulationGroup = selectedSimulationGroup
                 applyResultIfAvailable(to: newTicket, issueNumber: normalizedIssue)
                 modelContext.insert(newTicket)
             }
@@ -310,6 +334,7 @@ private struct TicketSignature: Hashable {
     let backNumbersRaw: String
     let multiplier: Int
     let isAdditional: Bool
+    let isSimulation: Bool
     let simulationGroupID: UUID?
 
     init(
@@ -318,6 +343,7 @@ private struct TicketSignature: Hashable {
         entry: TicketNumberDraft,
         multiplier: Int,
         isAdditional: Bool,
+        isSimulation: Bool,
         simulationGroupID: UUID?
     ) {
         self.lotteryRawValue = kind.rawValue
@@ -326,6 +352,7 @@ private struct TicketSignature: Hashable {
         self.backNumbersRaw = LotteryDraw.encode(entry.backNumbers)
         self.multiplier = multiplier
         self.isAdditional = isAdditional
+        self.isSimulation = isSimulation
         self.simulationGroupID = simulationGroupID
     }
 
@@ -339,6 +366,7 @@ private struct TicketSignature: Hashable {
             ),
             multiplier: ticket.multiplier,
             isAdditional: ticket.isAdditional,
+            isSimulation: ticket.isSimulated,
             simulationGroupID: ticket.simulationGroup?.id
         )
     }

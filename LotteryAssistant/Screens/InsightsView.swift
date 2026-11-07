@@ -4,14 +4,13 @@ import SwiftData
 struct InsightsView: View {
     @Binding var isPresentingTicketEntry: Bool
     @Binding var ticketEntryPrefill: TicketEntryPrefill?
-    @AppStorage(SimulationMode.activeGroupIDKey) private var activeSimulationGroupID = ""
     @Query(sort: \LotteryTicket.purchaseDate, order: .reverse) private var tickets: [LotteryTicket]
     @State private var kind: LotteryKind = .doubleColorBall
     @State private var generatedEntries: [TicketNumberDraft] = []
     @State private var generatedTicketCount = 1
 
     private var realTickets: [LotteryTicket] {
-        tickets.filter { !$0.isSimulation }
+        tickets.filter { !$0.isSimulated }
     }
 
     private var totalCost: Double {
@@ -32,18 +31,9 @@ struct InsightsView: View {
         }
     }
 
-    var isSimulationMode: Bool {
-       !activeSimulationGroupID.isEmpty
-    }
-
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: AppTheme.Spacing.lg) {
-                if isSimulationMode {
-                    Label("模拟模式已开启，新增号码将加入当前模拟组。", systemImage: "wand.and.stars")
-                        .font(.footnote)
-                        .foregroundStyle(AppTheme.Color.accent)
-                }
                 Picker("彩种", selection: $kind) {
                     ForEach(LotteryKind.allCases) { kind in
                         Text(kind.displayName).tag(kind)
@@ -72,7 +62,7 @@ struct InsightsView: View {
                 VStack(alignment: .leading, spacing: AppTheme.Spacing.xxs) {
                     Text("随机选号")
                         .font(.title3.bold())
-                    Text("\(isSimulationMode ? "随机生成并加入模拟组" : "随机生成") 1–5 注 \(kind.displayName) 号码")
+                    Text("随机生成 1–5 注 \(kind.displayName) 号码")
                         .font(.caption)
                         .foregroundStyle(AppTheme.Color.secondaryText)
                 }
@@ -117,11 +107,7 @@ struct InsightsView: View {
                     ticketEntryPrefill = TicketEntryPrefill(kind: kind, entries: generatedEntries)
                     isPresentingTicketEntry = true
                 } label: {
-                    Text(
-                        isSimulationMode
-                            ? "将这 \(generatedEntries.count) 张彩票加入模拟组"
-                            : "录入这 \(generatedEntries.count) 张彩票"
-                    )
+                    Text("录入这 \(generatedEntries.count) 张彩票")
                         .frame(maxWidth: .infinity)
                 }
                 .font(.subheadline.weight(.semibold))

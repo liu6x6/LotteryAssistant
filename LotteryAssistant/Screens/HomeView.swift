@@ -7,7 +7,7 @@ struct HomeView: View {
     @Query(sort: \LotteryTicket.purchaseDate, order: .reverse) private var tickets: [LotteryTicket]
 
     private var realTickets: [LotteryTicket] {
-        tickets.filter { !$0.isSimulation }
+        tickets.filter { !$0.isSimulated }
     }
 
     private var pendingTickets: [LotteryTicket] {

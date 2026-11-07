@@ -3,7 +3,19 @@ import SwiftData
 
 struct TicketListView: View {
     @Binding var isPresentingTicketEntry: Bool
+    let isSimulation: Bool
+    let simulationGroup: SimulationGroup?
     @State private var selectedStatus: TicketStatus?
+
+    init(
+        isPresentingTicketEntry: Binding<Bool>,
+        isSimulation: Bool = false,
+        simulationGroup: SimulationGroup? = nil
+    ) {
+        _isPresentingTicketEntry = isPresentingTicketEntry
+        self.isSimulation = isSimulation
+        self.simulationGroup = simulationGroup
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,9 +35,9 @@ struct TicketListView: View {
             }
             .background(.bar)
 
-            TicketGroupList(status: selectedStatus)
+            TicketGroupList(status: selectedStatus, isSimulation: isSimulation, simulationGroup: simulationGroup)
         }
-        .navigationTitle("我的彩票")
+        .navigationTitle(simulationGroup?.name ?? (isSimulation ? "模拟买彩票" : "我的彩票"))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -43,7 +55,10 @@ private struct TicketGroupList: View {
     @Query private var tickets: [LotteryTicket]
     @Query(sort: \LotteryDraw.drawDate, order: .reverse) private var draws: [LotteryDraw]
 
-    init(status: TicketStatus?) {
+    let isSimulation: Bool
+    let simulationGroup: SimulationGroup?
+
+    init(status: TicketStatus?, isSimulation: Bool, simulationGroup: SimulationGroup?) {
         var descriptor: FetchDescriptor<LotteryTicket>
         if let status {
             let rawValue = status.rawValue
@@ -55,10 +70,15 @@ private struct TicketGroupList: View {
             descriptor = FetchDescriptor(sortBy: [SortDescriptor(\.purchaseDate, order: .reverse)])
         }
         _tickets = Query(descriptor, animation: .default)
+        self.isSimulation = isSimulation
+        self.simulationGroup = simulationGroup
     }
 
     private var displayedTickets: [LotteryTicket] {
-        tickets.filter { !$0.isSimulation }
+        if let simulationGroup {
+            return tickets.filter { $0.simulationGroup?.id == simulationGroup.id }
+        }
+        return tickets.filter { $0.isSimulated == isSimulation }
     }
 
     var body: some View {
